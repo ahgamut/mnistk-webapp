@@ -22,11 +22,11 @@ def lv(label, value, vlabel=None):
     return {"label": label, "value": "{}|{}".format(vlab, value)}
 
 
-def halved_div(func, div_string="", split=50):
+def halved_div(func, func2="", split=50):
     div = html.Div(
         children=[
             html.Div(
-                div_string, style=dict(width="{}%".format(split), display="table-cell")
+                func2, style=dict(width="{}%".format(split), display="table-cell")
             ),
             html.Div(
                 func, style=dict(width="{}%".format(100 - split), display="table-cell")

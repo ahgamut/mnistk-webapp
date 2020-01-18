@@ -3,7 +3,7 @@ import dash_core_components as dcc
 import dash_html_components as html
 import dash.dependencies as dd
 from .overview import set_layout as ov_layout, set_callbacks as ov_callbacks
-from .singleton import set_layout as sl_layout, set_callbacks as sl_callbacks
+from .singleton import SPHandler
 import pandas as pd
 import sys, os
 
@@ -13,8 +13,10 @@ class PageHandler(object):
     df = None
     overview_page = None
     single_page = None
+    result_dir = None
 
     def __init__(self, result_dir):
+        PageHandler.result_dir = result_dir
         csv_path = os.path.join(result_dir, "summary.csv")
         PageHandler.df = pd.read_csv(csv_path, header=0)
         external_css = [
@@ -39,13 +41,12 @@ class PageHandler(object):
     @staticmethod
     def setup_pages():
         PageHandler.overview_page = ov_layout(PageHandler.df, PageHandler.app)
-        PageHandler.single_page = sl_layout(PageHandler.app)
+        PageHandler.single_page = SPHandler(PageHandler.result_dir, PageHandler.app)
         ov_callbacks(PageHandler.df, PageHandler.app)
-        sl_callbacks(PageHandler.app)
 
     @staticmethod
     def display_page(pathname):
         if pathname == "/":
             return PageHandler.overview_page
         else:
-            return PageHandler.single_page(pathname)
+            return PageHandler.single_page.layout(pathname)
