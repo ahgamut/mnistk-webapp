@@ -3,11 +3,18 @@ import numpy as np
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve, auc
 
 
-def get_confusion_split(true_path, pred_path, epoch):
+def get_confusion_dict(true_path, pred_path):
+    ans = {}
     with h5py.File(true_path, "r") as f_true:
         truth = np.array(f_true.get("truth"))
-    with h5py.File(pred_path, "r") as f_pred:
-        preds = np.array(f_pred.get("{}/preds".format(epoch)))
+        with h5py.File(pred_path, "r") as f_pred:
+            for epoch in f_pred.keys():
+                preds = np.array(f_pred.get("{}/preds".format(epoch)))
+                ans[int(epoch)] = get_confusion_data(truth, preds)
+    return ans
+
+
+def get_confusion_data(truth, preds):
     cf = confusion_matrix(truth, preds)
     cf_text = cf.astype("|U10")
 
@@ -17,12 +24,12 @@ def get_confusion_split(true_path, pred_path, epoch):
     cf_correct[a] = np.nan
     cf_wrong[a == 0] = np.nan
     ans = dict(
-        wrong=cf_wrong,
-        wmin=np.nanmin(cf_wrong),
-        wmax=np.nanmax(cf_wrong),
-        correct=cf_correct,
-        cmin=np.nanmin(cf_correct),
-        cmax=np.nanmax(cf_correct),
-        text=cf_text,
+        wrong=cf_wrong.tolist(),
+        wmin=np.nanmin(cf_wrong).tolist(),
+        wmax=np.nanmax(cf_wrong).tolist(),
+        correct=cf_correct.tolist(),
+        cmin=np.nanmin(cf_correct).tolist(),
+        cmax=np.nanmax(cf_correct).tolist(),
+        text=cf_text.tolist(),
     )
     return ans
