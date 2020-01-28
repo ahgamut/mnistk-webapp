@@ -266,7 +266,7 @@ class DataHandler(object):
         ytitle, ycol = options["ytitle"], options["ycol"]
         ans = {
             "data": [
-                go.Scatter(
+                go.Scattergl(
                     x=gp[xcol],
                     y=gp[ycol],
                     mode="markers",

@@ -9,7 +9,7 @@ from os.path import dirname, join
 import pandas as pd
 from flask import send_from_directory
 from .overview import halved_div
-from .utils import get_confusion_dict
+from .utils import get_scoring_dict, random_colors
 from mnistk import Tester
 
 
@@ -52,7 +52,7 @@ class SPHandler(object):
         data_dict["stat_rank"] = dict_from_file(join(mod_dir, "rankings.json"))
         data_dict["dyn_props"] = dict_from_file(join(run_dir, "properties.json"))
         data_dict["dyn_rank"] = dict_from_file(join(run_dir, "rankings.json"))
-        data_dict["confusion_dict"] = get_confusion_dict(
+        data_dict["confusion-dict"], data_dict["splits-dict"] = get_scoring_dict(
             join(SPHandler.result_dir, "exam_stats.h5"),
             join(SPHandler.mod_dir, "runs", SPHandler.run, "predictions.h5"),
         )
@@ -84,8 +84,14 @@ class SPHandler(object):
                 html.P(
                     "AUC is ridiculously high every time, because there are a large number of true negative predictions."
                 ),
-                dcc.Graph(id="accuracy-heatmap", config=dict(displayModeBar=False)),
-                html.P(json.dumps(data_dict["stat_props"])),
+                halved_div(
+                    dcc.Graph(id="split-chart", config=dict(displayModeBar=False)),
+                    dcc.Graph(
+                        id="accuracy-heatmap",
+                        hoverData={"points": [dict(x=0, y=0)]},
+                        config=dict(displayModeBar=False),
+                    ),
+                ),
                 html.Div(
                     [
                         html.P(
@@ -95,6 +101,7 @@ class SPHandler(object):
                     ],
                     id="testing-samples",
                 ),
+                html.P(json.dumps(data_dict["stat_props"])),
                 html.Div(
                     [
                         html.P(id="ranking-info"),
@@ -124,7 +131,22 @@ class SPHandler(object):
                         html.Div(json.dumps(v), id=k.replace("_", "-"))
                         for k, v in data_dict.items()
                     ]
-                    + [html.Div(str(epoch), id="previous-hover")],
+                    + [
+                        html.Div(
+                            json.dumps({"previous": str(epoch), "current": str(epoch)}),
+                            id="epoch-hovers",
+                        ),
+                        html.Div(
+                            json.dumps(
+                                {
+                                    "pie-splits": random_colors(
+                                        s=0.9, v=0.4, num_colors=10
+                                    )
+                                }
+                            ),
+                            id="graph-colors",
+                        ),
+                    ],
                     id="data-dict",
                     style=dict(display="none"),
                 ),
@@ -172,20 +194,23 @@ class SPHandler(object):
         return ans
 
     @staticmethod
-    def bar_graphs(hoverData, dyn_props, previous_hover):
+    def bar_graphs(hoverData, dyn_props, epoch_hover):
         dyn_props = json.loads(dyn_props)
         epochs = list(dyn_props["test loss"].keys())
         pt = hoverData["points"][0]
         if pt["curveNumber"] != 1:
             return [dash.no_update, dash.no_update, dash.no_update]
+        epoch_hover = json.loads(epoch_hover)
+        epoch_hover["previous"] = epoch_hover["current"]
+        epoch_hover["current"] = str(pt["x"])
 
-        def get_bars(highlight, col, title):
+        def get_bars(col, title):
             xs = list(range(10))
             average = lambda x: sum(x) / len(x)
 
             def get_diff():
-                cur_avg = average(dyn_props[col][highlight])
-                diff = cur_avg - average(dyn_props[col][previous_hover])
+                cur_avg = average(dyn_props[col][epoch_hover["current"]])
+                diff = cur_avg - average(dyn_props[col][epoch_hover["previous"]])
                 if diff > 0:
                     return "{:.5f}, \u25b4 {:.5f}".format(cur_avg, diff)
                 elif diff < 0:
@@ -194,12 +219,20 @@ class SPHandler(object):
                     return "{:.5f}".format(cur_avg)
 
             def opacity(x):
-                if x == highlight:
+                if x == epoch_hover["previous"]:
                     return 0.9
-                elif x == previous_hover:
+                elif x == epoch_hover["current"]:
                     return 0.7
                 else:
                     return 0
+
+            def graph_symbol(a, b):
+                if a > b:
+                    return "triangle-up"
+                elif a < b:
+                    return "triangle-down"
+                else:
+                    return "square"
 
             ans1 = {
                 "data": [
@@ -207,11 +240,19 @@ class SPHandler(object):
                         x=xs,
                         y=[float(x) for x in dyn_props[col][str(epoch)]],
                         mode="markers",
+                        marker=dict(
+                            size=12 if str(epoch) == epoch_hover["current"] else 8,
+                            symbol=[
+                                graph_symbol(
+                                    dyn_props[col][str(epoch)][i],
+                                    dyn_props[col][epoch_hover["previous"]][i],
+                                )
+                                for i in range(10)
+                            ],
+                        ),
                         opacity=opacity(epoch),
                         name="epoch {}".format(epoch),
-                        hoverinfo="all"
-                        if epoch == highlight or epoch == previous_hover
-                        else "none",
+                        hoverinfo="all" if epoch in epoch_hover.values() else "none",
                     )
                     for epoch in epochs
                 ],
@@ -220,7 +261,7 @@ class SPHandler(object):
                     font={"family": "et-book", "size": 15},
                     xaxis=dict(
                         title="{} at Epoch {} (avg. {})".format(
-                            title, highlight, get_diff()
+                            title, epoch_hover["current"], get_diff()
                         ),
                         dtick=1,
                         zeroline=False,
@@ -233,9 +274,9 @@ class SPHandler(object):
             return ans1
 
         return [
-            get_bars(str(pt["x"]), "test accuracy", "Accuracy"),
-            get_bars(str(pt["x"]), "test AUC", "AUC"),
-            str(pt["x"]),
+            get_bars("test accuracy", "Accuracy"),
+            get_bars("test AUC", "AUC"),
+            json.dumps(epoch_hover),
         ]
 
     @staticmethod
@@ -278,7 +319,7 @@ class SPHandler(object):
                     zmin=0,
                     zmax=cf_data["wmax"] + 5,
                     name="Wrong",
-                    hovertemplate="%{z} samples<br>Truth: %{x} <br>Prediction: %{y}<br><extra></extra>",
+                    hovertemplate="%{z} samples<br>Prediction: %{x} <br>Truth: %{y}<br><extra></extra>",
                 ),
                 go.Heatmap(
                     x=to9,
@@ -293,25 +334,67 @@ class SPHandler(object):
                     zmin=cf_data["cmin"] - 200,
                     zmax=cf_data["cmax"] + 200,
                     name="Correct",
-                    hovertemplate="%{z} samples<br>Truth: %{x} <br>Prediction: %{y}<br><extra></extra>",
+                    hovertemplate="%{z} samples<br>Prediction: %{x} <br>Truth: %{y}<br><extra></extra>",
                 ),
             ],
             "layout": dict(
                 hovermode="closest",
                 font={"family": "et-book", "size": 15},
-                width="400",
-                height="400",
-                xaxis=dict(title="Truth", dtick=1, zeroline=False),
-                yaxis=dict(title="Prediction", dtick=1, zeroline=False),
-                margin={"l": 40, "b": 50, "r": 0, "t": 0},
+                width="450",
+                height="450",
+                yaxis=dict(title="Truth", dtick=1, zeroline=False),
+                xaxis=dict(title="Prediction", dtick=1, zeroline=False),
+                margin={"l": 40, "b": 50, "r": 40, "t": 40},
                 annotations=anno_text,
+                title=dict(
+                    color="#000000", text="Confusion Matrix at Epoch {}".format(pt["x"])
+                ),
             ),
         }
         return ans
 
     @staticmethod
-    def auc_splits(hoverData, dyn_props):
-        pass
+    def pie_splits(accuData, epoch_hover, splits_dict, colors):
+        epoch = int(json.loads(epoch_hover)["current"])
+        colors = json.loads(colors)["pie-splits"]
+        pt = accuData["points"][0]
+        sp_data = json.loads(splits_dict)[str(epoch)][pt["y"]][pt["x"]]
+        to9 = list(range(10))
+        if max(sp_data) == 0:
+            return dash.no_update
+        return {
+            "data": [
+                go.Pie(
+                    labels=to9,
+                    values=sp_data,
+                    customdata=["%0.3f" % (x) for x in sp_data],
+                    opacity=0.7,
+                    marker=dict(colors=colors, line=dict(color="#000000", width=0)),
+                    hovertemplate="predicting %{label} with score %{customdata}<extra></extra>",
+                    texttemplate="%{label} <br> %{customdata}",
+                    textposition="inside",
+                    showlegend=False,
+                    hole=0.5,
+                )
+            ],
+            "layout": dict(
+                hovermode="closest",
+                font={"family": "et-book", "size": 15},
+                width="600",
+                height="400",
+                margin={"l": 50, "b": 50, "r": 20, "t": 20},
+                uniformtext=dict(minsize=8, mode="hide"),
+                annotations=[
+                    dict(
+                        font=dict(color="#000000"),
+                        x=0.5,
+                        y=0.5,
+                        text="Truth = {}".format(pt["y"]),
+                        showarrow=False,
+                    )
+                ],
+            ),
+        }
 
     @staticmethod
     def ranking_info(hoverData, stat_props, stat_rank, dyn_props, dyn_rank):
@@ -343,12 +426,12 @@ class SPHandler(object):
             [
                 dd.Output(component_id="accu-bars", component_property="figure"),
                 dd.Output(component_id="auc-bars", component_property="figure"),
-                dd.Output(component_id="previous-hover", component_property="children"),
+                dd.Output(component_id="epoch-hovers", component_property="children"),
             ],
             [dd.Input(component_id="loss-graph", component_property="hoverData")],
             [
                 dd.State(component_id="dyn-props", component_property="children"),
-                dd.State(component_id="previous-hover", component_property="children"),
+                dd.State(component_id="epoch-hovers", component_property="children"),
             ],
         )(SPHandler.bar_graphs)
 
@@ -368,6 +451,20 @@ class SPHandler(object):
             [dd.Input(component_id="loss-graph", component_property="hoverData")],
             [dd.State(component_id="confusion-dict", component_property="children")],
         )(SPHandler.accuracy_heatmap)
+
+        SPHandler.app.callback(
+            dd.Output(component_id="split-chart", component_property="figure"),
+            [
+                dd.Input(
+                    component_id="accuracy-heatmap", component_property="hoverData"
+                ),
+                dd.Input(component_id="epoch-hovers", component_property="children"),
+            ],
+            [
+                dd.State(component_id="splits-dict", component_property="children"),
+                dd.State(component_id="graph-colors", component_property="children"),
+            ],
+        )(SPHandler.pie_splits)
 
         @SPHandler.app.server.route("/<path:im_path>.svg")
         def net_struct(im_path):
