@@ -11,6 +11,7 @@ from flask import send_from_directory
 from .overview import halved_div
 from .utils import get_scoring_dict, random_colors
 from mnistk import Tester
+from mnistk.collect import get_records
 
 
 def dict_from_file(path):
@@ -48,24 +49,30 @@ class SPHandler(object):
         run_dir = join(mod_dir, "runs", run)
 
         data_dict = {}
-        data_dict["stat_props"] = dict_from_file(join(mod_dir, "network.json"))
-        data_dict["stat_rank"] = dict_from_file(join(mod_dir, "rankings.json"))
-        data_dict["dyn_props"] = dict_from_file(join(run_dir, "properties.json"))
-        data_dict["dyn_rank"] = dict_from_file(join(run_dir, "rankings.json"))
+        data_dict["stat-props"] = dict_from_file(join(mod_dir, "network.json"))
+        data_dict["stat-rank"] = dict_from_file(join(mod_dir, "rankings.json"))
+        data_dict["dyn-props"] = dict_from_file(join(run_dir, "properties.json"))
+        data_dict["dyn-rank"] = dict_from_file(join(run_dir, "rankings.json"))
         data_dict["confusion-dict"], data_dict["splits-dict"] = get_scoring_dict(
             join(SPHandler.result_dir, "exam_stats.h5"),
             join(SPHandler.mod_dir, "runs", SPHandler.run, "predictions.h5"),
         )
+        data_dict["dyn-records"] = {}
+        dp = {k: v for k, v in data_dict["dyn-props"].items()}
+        dp.update(data_dict["stat-props"])
+        dyn_records = get_records(dp)
+        for i, k in enumerate(sorted(data_dict["dyn-props"]["test loss"].keys())):
+            data_dict["dyn-records"][k] = dyn_records[i]
 
         SPHandler.tester.load_network(
             SPHandler.mod_name,
             run_dir,
-            list(int(x) for x in data_dict["dyn_props"]["test accuracy"].keys()),
+            list(int(x) for x in data_dict["dyn-props"]["test accuracy"].keys()),
         )
 
         layout = html.Div(
             children=[
-                dcc.Link("Go Back to Overview", href="/"),
+                html.H2("Performance Details"),
                 halved_div(
                     html.Div(
                         [
@@ -88,10 +95,21 @@ class SPHandler(object):
                     dcc.Graph(id="split-chart", config=dict(displayModeBar=False)),
                     dcc.Graph(
                         id="accuracy-heatmap",
-                        hoverData={"points": [dict(x=0, y=0)]},
+                        hoverData={
+                            "points": [
+                                dict(
+                                    x=0,
+                                    y=0,
+                                    z=data_dict["confusion-dict"][epoch]["correct"][0][
+                                        0
+                                    ],
+                                )
+                            ]
+                        },
                         config=dict(displayModeBar=False),
                     ),
                 ),
+                html.H2("View gradients with individual samples"),
                 html.Div(
                     [
                         html.P(
@@ -101,10 +119,9 @@ class SPHandler(object):
                     ],
                     id="testing-samples",
                 ),
-                html.P(json.dumps(data_dict["stat_props"])),
+                html.H2("Structure and Rankings"),
                 html.Div(
                     [
-                        html.P(id="ranking-info"),
                         html.P(
                             [
                                 html.Span(
@@ -114,7 +131,10 @@ class SPHandler(object):
                                             src="/{}/network.svg".format(
                                                 SPHandler.mod_name
                                             ),
-                                            height=800,
+                                            style={
+                                                "max-height": 1100,
+                                                "max-width": 400,
+                                            },
                                         )
                                     ],
                                     className="marginnote",
@@ -122,15 +142,13 @@ class SPHandler(object):
                             ],
                             id="net-structure",
                         ),
+                        html.P(id="ranking-info"),
                     ],
                     id="ranking-div",
                     style=dict(width="75%"),
                 ),
                 html.Div(
-                    [
-                        html.Div(json.dumps(v), id=k.replace("_", "-"))
-                        for k, v in data_dict.items()
-                    ]
+                    [html.Div(json.dumps(v), id=k) for k, v in data_dict.items()]
                     + [
                         html.Div(
                             json.dumps({"previous": str(epoch), "current": str(epoch)}),
@@ -140,7 +158,7 @@ class SPHandler(object):
                             json.dumps(
                                 {
                                     "pie-splits": random_colors(
-                                        s=0.9, v=0.4, num_colors=10
+                                        s=0.85, v=0.4, num_colors=10
                                     )
                                 }
                             ),
@@ -150,13 +168,17 @@ class SPHandler(object):
                     id="data-dict",
                     style=dict(display="none"),
                 ),
+                dcc.Link("Go Back to Overview", href="/"),
             ],
             id="single-content",
         )
         return layout
 
     @staticmethod
-    def loss_function(dyn_props):
+    def loss_function(lossData, dyn_props):
+        pt = lossData["points"][0]
+        if pt["curveNumber"] != 1:
+            return dash.no_update
         dyn_props = json.loads(dyn_props)
         testdata = sorted(
             ((int(x[0]), float(x[1])) for x in dyn_props["test loss"].items()),
@@ -176,7 +198,13 @@ class SPHandler(object):
                     x=[x[0] for x in testdata],
                     y=[x[1] for x in testdata],
                     mode="markers",
-                    marker=dict(size=12),
+                    marker=dict(
+                        size=12,
+                        line=dict(
+                            width=[1.5 * (t[0] == pt["x"]) for t in testdata],
+                            color="#000000",
+                        ),
+                    ),
                     opacity=0.6,
                     name="test",
                 ),
@@ -194,12 +222,12 @@ class SPHandler(object):
         return ans
 
     @staticmethod
-    def bar_graphs(hoverData, dyn_props, epoch_hover):
-        dyn_props = json.loads(dyn_props)
-        epochs = list(dyn_props["test loss"].keys())
-        pt = hoverData["points"][0]
+    def bar_graphs(lossData, dyn_props, epoch_hover):
+        pt = lossData["points"][0]
         if pt["curveNumber"] != 1:
             return [dash.no_update, dash.no_update, dash.no_update]
+        dyn_props = json.loads(dyn_props)
+        epochs = list(dyn_props["test loss"].keys())
         epoch_hover = json.loads(epoch_hover)
         epoch_hover["previous"] = epoch_hover["current"]
         epoch_hover["current"] = str(pt["x"])
@@ -280,8 +308,89 @@ class SPHandler(object):
         ]
 
     @staticmethod
-    def accuracy_heatmap(hoverData, confusion_dict):
-        pt = hoverData["points"][0]
+    def ranking_info(lossData, stat_props, stat_rank, dyn_records, dyn_rank):
+        pt = lossData["points"][0]
+        if pt["curveNumber"] != 1:
+            return dash.no_update
+        stat_props = json.loads(stat_props)
+        stat_rank = json.loads(stat_rank)
+        dyn_record = json.loads(dyn_records)[str(pt["x"])]
+        dyn_rank = json.loads(dyn_rank)[str(pt["x"])]
+
+        def rankdf(df_dict, score_dict):
+            df = pd.DataFrame(columns=df_dict["columns"], data=df_dict["data"])
+            df["metric"] = df_dict["index"]
+            df["value"] = [score_dict.get(x, -1) for x in df["metric"]]
+            df = df[["metric", "value"] + df_dict["columns"]]
+            out_of = df[df["metric"] == "out of"]
+            df = df[df["metric"] != "out of"]
+            return df, out_of
+
+        stat_df, stat_out = rankdf(stat_rank, stat_props)
+        dyn_df, dyn_out = rankdf(dyn_rank, dyn_record)
+
+        header_names = {
+            "Metric": "metric",
+            "Value": "value",
+            "Global Rank": "global",
+            "Group Rank": "in_group",
+            "Form Rank": "in_form",
+            "Run Rank": "in_run",
+        }
+        table_props = dict(
+            columns=[{"name": k, "id": v} for k, v in header_names.items()],
+            style_table={"overflowX": "scroll"},
+            style_cell={
+                "overflow": "hidden",
+                "textOverflow": "ellipsis",
+                "font-family": "et-book",
+                "font-size": 18,
+            },
+            style_data_conditional=[
+                {
+                    "if": dict(column_id=x, filter_query="{%s} eq 1" % (x)),
+                    "fontWeight": "bold",
+                    "backgroundColor": "rgb(102,255,51)",
+                }
+                for x in ["global", "in_group", "in_form", "in_run"]
+            ],
+            style_header={
+                "backgroundColor": "rgb(230, 230, 230)",
+                "fontWeight": "bold",
+                "font-family": "et-book",
+                "font-size": 20,
+            },
+        )
+        stat_table = dtable.DataTable(
+            id="stat-table", data=stat_df.to_dict("records"), **table_props
+        )
+        dyn_table = dtable.DataTable(
+            id="dyn-table", data=dyn_df.to_dict("records"), **table_props
+        )
+        layout = [
+            html.Div(
+                [
+                    html.P("Ranking Structural data for {}".format(stat_props["name"])),
+                    stat_table,
+                ]
+            ),
+            html.Br(),
+            html.Div(
+                [
+                    html.P(
+                        "Ranking Prediction data for {}, run {}, tested on epoch {}:".format(
+                            stat_props["name"], dyn_record["run"], pt["x"]
+                        )
+                    ),
+                    dyn_table,
+                ]
+            ),
+        ]
+        return layout
+
+    @staticmethod
+    def accuracy_heatmap(lossData, confusion_dict):
+        pt = lossData["points"][0]
         if pt["curveNumber"] != 1:
             return dash.no_update
         cf_data = json.loads(confusion_dict)[str(pt["x"])]
@@ -319,7 +428,7 @@ class SPHandler(object):
                     zmin=0,
                     zmax=cf_data["wmax"] + 5,
                     name="Wrong",
-                    hovertemplate="%{z} samples<br>Prediction: %{x} <br>Truth: %{y}<br><extra></extra>",
+                    hovertemplate="#Samples: %{z}<br>Truth: %{y}<br>Prediction: %{x} <br><extra></extra>",
                 ),
                 go.Heatmap(
                     x=to9,
@@ -334,7 +443,7 @@ class SPHandler(object):
                     zmin=cf_data["cmin"] - 200,
                     zmax=cf_data["cmax"] + 200,
                     name="Correct",
-                    hovertemplate="%{z} samples<br>Prediction: %{x} <br>Truth: %{y}<br><extra></extra>",
+                    hovertemplate="#Samples: %{z}<br>Truth: %{y}<br>Prediction: %{x} <br><extra></extra>",
                 ),
             ],
             "layout": dict(
@@ -356,20 +465,20 @@ class SPHandler(object):
     @staticmethod
     def pie_splits(accuData, epoch_hover, splits_dict, colors):
         epoch = int(json.loads(epoch_hover)["current"])
-        colors = json.loads(colors)["pie-splits"]
         pt = accuData["points"][0]
         sp_data = json.loads(splits_dict)[str(epoch)][pt["y"]][pt["x"]]
         to9 = list(range(10))
         if max(sp_data) == 0:
             return dash.no_update
+        colors = json.loads(colors)["pie-splits"]
         return {
             "data": [
                 go.Pie(
                     labels=to9,
                     values=sp_data,
-                    customdata=["%0.3f" % (x) for x in sp_data],
-                    opacity=0.7,
-                    marker=dict(colors=colors, line=dict(color="#000000", width=0)),
+                    customdata=["<b>%0.3f</b>" % (x) for x in sp_data],
+                    opacity=0.9,
+                    marker=dict(colors=colors, line=dict(color="#000000", width=0.5)),
                     hovertemplate="predicting %{label} with score %{customdata}<extra></extra>",
                     texttemplate="%{label} <br> %{customdata}",
                     textposition="inside",
@@ -380,47 +489,31 @@ class SPHandler(object):
             "layout": dict(
                 hovermode="closest",
                 font={"family": "et-book", "size": 15},
-                width="600",
-                height="400",
-                margin={"l": 50, "b": 50, "r": 20, "t": 20},
+                width="450",
+                height="450",
+                margin={"l": 20, "b": 35, "r": 20, "t": 40},
                 uniformtext=dict(minsize=8, mode="hide"),
                 annotations=[
                     dict(
-                        font=dict(color="#000000"),
+                        font=dict(color="#000000", size=18),
                         x=0.5,
                         y=0.5,
-                        text="Truth = {}".format(pt["y"]),
+                        text="{} Sample{}<br>Truth: {}<br>Prediction: {}".format(
+                            pt["z"], "s" if pt["z"] > 1 else "", pt["y"], pt["x"]
+                        ),
                         showarrow=False,
                     )
                 ],
+                title=dict(text="Distribution of Prediction Scores"),
             ),
         }
-
-    @staticmethod
-    def ranking_info(hoverData, stat_props, stat_rank, dyn_props, dyn_rank):
-        pt = hoverData["points"][0]
-        stat_props = json.loads(stat_props)
-        stat_rank = json.loads(stat_rank)
-        dyn_props = json.loads(dyn_props)
-        dyn_rank = json.loads(dyn_rank)
-        if pt["curveNumber"] != 1:
-            return dash.no_update
-        layout = [
-            html.P(
-                [
-                    "Ranking data for {}, run {}, epoch {}".format(
-                        stat_props["name"], dyn_props["run"], pt["x"]
-                    )
-                ]
-            )
-        ]
-        return layout
 
     @staticmethod
     def callbacks():
         SPHandler.app.callback(
             dd.Output(component_id="loss-graph", component_property="figure"),
-            [dd.Input(component_id="dyn-props", component_property="children")],
+            [dd.Input(component_id="loss-graph", component_property="hoverData")],
+            [dd.State(component_id="dyn-props", component_property="children")],
         )(SPHandler.loss_function)
         SPHandler.app.callback(
             [
@@ -441,7 +534,7 @@ class SPHandler(object):
             [
                 dd.State(component_id="stat-props", component_property="children"),
                 dd.State(component_id="stat-rank", component_property="children"),
-                dd.State(component_id="dyn-props", component_property="children"),
+                dd.State(component_id="dyn-records", component_property="children"),
                 dd.State(component_id="dyn-rank", component_property="children"),
             ],
         )(SPHandler.ranking_info)
