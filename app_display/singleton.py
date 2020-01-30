@@ -85,6 +85,7 @@ class SPHandler(object):
                     dcc.Graph(
                         id="loss-graph",
                         hoverData={"points": [dict(curveNumber=1, x=epoch)]},
+                        clickData={"points": [dict(curveNumber=1, x=epoch)]},
                         config=dict(displayModeBar=False),
                     ),
                 ),
@@ -150,10 +151,7 @@ class SPHandler(object):
                 html.Div(
                     [html.Div(json.dumps(v), id=k) for k, v in data_dict.items()]
                     + [
-                        html.Div(
-                            json.dumps({"previous": str(epoch), "current": str(epoch)}),
-                            id="epoch-hovers",
-                        ),
+                        html.Div(str(epoch), id="current-epoch"),
                         html.Div(
                             json.dumps(
                                 {
@@ -175,10 +173,11 @@ class SPHandler(object):
         return layout
 
     @staticmethod
-    def loss_function(lossData, dyn_props):
-        pt = lossData["points"][0]
-        if pt["curveNumber"] != 1:
-            return dash.no_update
+    def loss_function(lossHover, lossClick, dyn_props, current_epoch):
+        pt_hover = lossHover["points"][0]
+        pt_click = lossClick["points"][0]
+        if pt_hover["curveNumber"] != 1 or pt_click["curveNumber"] != 1:
+            return dash.no_update, dash.no_update
         dyn_props = json.loads(dyn_props)
         testdata = sorted(
             ((int(x[0]), float(x[1])) for x in dyn_props["test loss"].items()),
@@ -201,7 +200,7 @@ class SPHandler(object):
                     marker=dict(
                         size=12,
                         line=dict(
-                            width=[1.5 * (t[0] == pt["x"]) for t in testdata],
+                            width=[1.5 * (t[0] == pt_click["x"]) for t in testdata],
                             color="#000000",
                         ),
                     ),
@@ -219,38 +218,30 @@ class SPHandler(object):
                 margin={"l": 50, "b": 40, "r": 10, "t": 10},
             ),
         }
-        return ans
+
+        epoch = str(pt_click["x"])
+        if epoch == current_epoch:
+            epoch = dash.no_update
+        return ans, epoch
 
     @staticmethod
-    def bar_graphs(lossData, dyn_props, epoch_hover):
-        pt = lossData["points"][0]
-        if pt["curveNumber"] != 1:
-            return [dash.no_update, dash.no_update, dash.no_update]
+    def bar_graphs(lossHover, current_epoch, dyn_props):
+        pt_hover = lossHover["points"][0]
+        if pt_hover["curveNumber"] != 1:
+            return dash.no_update, dash.no_update
         dyn_props = json.loads(dyn_props)
         epochs = list(dyn_props["test loss"].keys())
-        epoch_hover = json.loads(epoch_hover)
-        epoch_hover["previous"] = epoch_hover["current"]
-        epoch_hover["current"] = str(pt["x"])
+        highlight_epoch = str(pt_hover["x"])
 
         def get_bars(col, title):
             xs = list(range(10))
             average = lambda x: sum(x) / len(x)
 
-            def get_diff():
-                cur_avg = average(dyn_props[col][epoch_hover["current"]])
-                diff = cur_avg - average(dyn_props[col][epoch_hover["previous"]])
-                if diff > 0:
-                    return "{:.5f}, \u25b4 {:.5f}".format(cur_avg, diff)
-                elif diff < 0:
-                    return "{:.5f}, \u25be {:.5f}".format(cur_avg, -diff)
-                else:
-                    return "{:.5f}".format(cur_avg)
-
             def opacity(x):
-                if x == epoch_hover["previous"]:
-                    return 0.9
-                elif x == epoch_hover["current"]:
+                if x == highlight_epoch:
                     return 0.7
+                elif x == current_epoch:
+                    return 0.9
                 else:
                     return 0
 
@@ -266,21 +257,23 @@ class SPHandler(object):
                 "data": [
                     go.Scatter(
                         x=xs,
-                        y=[float(x) for x in dyn_props[col][str(epoch)]],
+                        y=[float(x) for x in dyn_props[col][epoch]],
                         mode="markers",
                         marker=dict(
-                            size=12 if str(epoch) == epoch_hover["current"] else 8,
+                            size=12 if epoch == current_epoch else 8,
                             symbol=[
                                 graph_symbol(
-                                    dyn_props[col][str(epoch)][i],
-                                    dyn_props[col][epoch_hover["previous"]][i],
+                                    dyn_props[col][epoch][i],
+                                    dyn_props[col][current_epoch][i],
                                 )
                                 for i in range(10)
                             ],
                         ),
                         opacity=opacity(epoch),
                         name="epoch {}".format(epoch),
-                        hoverinfo="all" if epoch in epoch_hover.values() else "none",
+                        hoverinfo="all"
+                        if epoch in [highlight_epoch, current_epoch]
+                        else "none",
                     )
                     for epoch in epochs
                 ],
@@ -289,7 +282,7 @@ class SPHandler(object):
                     font={"family": "et-book", "size": 15},
                     xaxis=dict(
                         title="{} at Epoch {} (avg. {})".format(
-                            title, epoch_hover["current"], get_diff()
+                            title, current_epoch, average(dyn_props[col][current_epoch])
                         ),
                         dtick=1,
                         zeroline=False,
@@ -301,21 +294,15 @@ class SPHandler(object):
             }
             return ans1
 
-        return [
-            get_bars("test accuracy", "Accuracy"),
-            get_bars("test AUC", "AUC"),
-            json.dumps(epoch_hover),
-        ]
+        return [get_bars("test accuracy", "Accuracy"), get_bars("test AUC", "AUC")]
 
     @staticmethod
-    def ranking_info(lossData, stat_props, stat_rank, dyn_records, dyn_rank):
-        pt = lossData["points"][0]
-        if pt["curveNumber"] != 1:
-            return dash.no_update
+    def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
+        epoch = current_epoch
         stat_props = json.loads(stat_props)
         stat_rank = json.loads(stat_rank)
-        dyn_record = json.loads(dyn_records)[str(pt["x"])]
-        dyn_rank = json.loads(dyn_rank)[str(pt["x"])]
+        dyn_record = json.loads(dyn_records)[epoch]
+        dyn_rank = json.loads(dyn_rank)[epoch]
 
         def rankdf(df_dict, score_dict):
             df = pd.DataFrame(columns=df_dict["columns"], data=df_dict["data"])
@@ -379,7 +366,7 @@ class SPHandler(object):
                 [
                     html.P(
                         "Ranking Prediction data for {}, run {}, tested on epoch {}:".format(
-                            stat_props["name"], dyn_record["run"], pt["x"]
+                            stat_props["name"], dyn_record["run"], current_epoch
                         )
                     ),
                     dyn_table,
@@ -389,12 +376,7 @@ class SPHandler(object):
         return layout
 
     @staticmethod
-    def accuracy_heatmap(lossData, confusion_dict):
-        pt = lossData["points"][0]
-        if pt["curveNumber"] != 1:
-            return dash.no_update
-        cf_data = json.loads(confusion_dict)[str(pt["x"])]
-
+    def accuracy_heatmap(current_epoch, confusion_dict, accuHover):
         def get_annotation(x, y, text):
             return dict(
                 font=dict(color="#000000"),
@@ -406,6 +388,7 @@ class SPHandler(object):
                 yref="y",
             )
 
+        cf_data = json.loads(confusion_dict)[current_epoch]
         anno_text = [get_annotation(i, i, cf_data["text"][i][i]) for i in range(10)] + [
             get_annotation(i, j, cf_data["text"][j][i])
             for i in range(10)
@@ -456,16 +439,23 @@ class SPHandler(object):
                 margin={"l": 40, "b": 50, "r": 40, "t": 40},
                 annotations=anno_text,
                 title=dict(
-                    color="#000000", text="Confusion Matrix at Epoch {}".format(pt["x"])
+                    color="#000000",
+                    text="Confusion Matrix at Epoch {}".format(current_epoch),
                 ),
             ),
         }
-        return ans
+        acc_pt = accuHover["points"][0]
+        acc_pt["z"] = int(cf_data["text"][acc_pt["y"]][acc_pt["x"]])
+        if acc_pt["z"] == 0:
+            acc_pt["x"] = 0
+            acc_pt["y"] = 0
+            acc_pt["z"] = int(cf_data["text"][acc_pt["y"]][acc_pt["x"]])
+        return ans, accuHover
 
     @staticmethod
-    def pie_splits(accuData, epoch_hover, splits_dict, colors):
-        epoch = int(json.loads(epoch_hover)["current"])
-        pt = accuData["points"][0]
+    def pie_splits(accuHover, current_epoch, splits_dict, colors):
+        epoch = int(current_epoch)
+        pt = accuHover["points"][0]
         sp_data = json.loads(splits_dict)[str(epoch)][pt["y"]][pt["x"]]
         to9 = list(range(10))
         if max(sp_data) == 0:
@@ -511,51 +501,49 @@ class SPHandler(object):
     @staticmethod
     def callbacks():
         SPHandler.app.callback(
-            dd.Output(component_id="loss-graph", component_property="figure"),
-            [dd.Input(component_id="loss-graph", component_property="hoverData")],
-            [dd.State(component_id="dyn-props", component_property="children")],
+            [dd.Output("loss-graph", "figure"), dd.Output("current-epoch", "children")],
+            [dd.Input("loss-graph", "hoverData"), dd.Input("loss-graph", "clickData")],
+            [dd.State("dyn-props", "children"), dd.State("current-epoch", "children")],
         )(SPHandler.loss_function)
         SPHandler.app.callback(
+            [dd.Output("accu-bars", "figure"), dd.Output("auc-bars", "figure")],
             [
-                dd.Output(component_id="accu-bars", component_property="figure"),
-                dd.Output(component_id="auc-bars", component_property="figure"),
-                dd.Output(component_id="epoch-hovers", component_property="children"),
+                dd.Input("loss-graph", "hoverData"),
+                dd.Input("current-epoch", "children"),
             ],
-            [dd.Input(component_id="loss-graph", component_property="hoverData")],
-            [
-                dd.State(component_id="dyn-props", component_property="children"),
-                dd.State(component_id="epoch-hovers", component_property="children"),
-            ],
+            [dd.State("dyn-props", "children")],
         )(SPHandler.bar_graphs)
 
         SPHandler.app.callback(
-            dd.Output(component_id="ranking-info", component_property="children"),
-            [dd.Input(component_id="loss-graph", component_property="hoverData")],
+            dd.Output("ranking-info", "children"),
+            [dd.Input("current-epoch", "children")],
             [
-                dd.State(component_id="stat-props", component_property="children"),
-                dd.State(component_id="stat-rank", component_property="children"),
-                dd.State(component_id="dyn-records", component_property="children"),
-                dd.State(component_id="dyn-rank", component_property="children"),
+                dd.State("stat-props", "children"),
+                dd.State("stat-rank", "children"),
+                dd.State("dyn-records", "children"),
+                dd.State("dyn-rank", "children"),
             ],
         )(SPHandler.ranking_info)
 
         SPHandler.app.callback(
-            dd.Output(component_id="accuracy-heatmap", component_property="figure"),
-            [dd.Input(component_id="loss-graph", component_property="hoverData")],
-            [dd.State(component_id="confusion-dict", component_property="children")],
+            [
+                dd.Output("accuracy-heatmap", "figure"),
+                dd.Output("accuracy-heatmap", "hoverData"),
+            ],
+            [dd.Input("current-epoch", "children")],
+            [
+                dd.State("confusion-dict", "children"),
+                dd.State("accuracy-heatmap", "hoverData"),
+            ],
         )(SPHandler.accuracy_heatmap)
 
         SPHandler.app.callback(
-            dd.Output(component_id="split-chart", component_property="figure"),
+            dd.Output("split-chart", "figure"),
+            [dd.Input("accuracy-heatmap", "hoverData")],
             [
-                dd.Input(
-                    component_id="accuracy-heatmap", component_property="hoverData"
-                ),
-                dd.Input(component_id="epoch-hovers", component_property="children"),
-            ],
-            [
-                dd.State(component_id="splits-dict", component_property="children"),
-                dd.State(component_id="graph-colors", component_property="children"),
+                dd.State("current-epoch", "children"),
+                dd.State("splits-dict", "children"),
+                dd.State("graph-colors", "children"),
             ],
         )(SPHandler.pie_splits)
 
