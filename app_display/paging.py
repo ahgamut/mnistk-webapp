@@ -2,8 +2,8 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import dash.dependencies as dd
-from .overview import set_layout as ov_layout, set_callbacks as ov_callbacks
-from .singleton import SPHandler
+from .overview import set_layout as overview_layout, set_callbacks as overview_callbacks
+from .singleton import set_layout as single_layout, set_callbacks as single_callbacks
 import pandas as pd
 import sys, os
 
@@ -26,7 +26,7 @@ class PageHandler(object):
         PageHandler.app.config.suppress_callback_exceptions = True
         PageHandler.app.layout = html.Div(
             children=[
-                dcc.Location(id="url", refresh=False),
+                dcc.Location(id="url", refresh=True),
                 html.H1(["mnistk - 1001 generated networks on MNIST"]),
                 html.P("some nice subtitle text here", className="subtitle"),
                 html.Div(id="page-content"),
@@ -40,13 +40,14 @@ class PageHandler(object):
 
     @staticmethod
     def setup_pages():
-        PageHandler.overview_page = ov_layout(PageHandler.df, PageHandler.app)
-        PageHandler.single_page = SPHandler(PageHandler.result_dir, PageHandler.app)
-        ov_callbacks(PageHandler.df, PageHandler.app)
+        overview_callbacks(PageHandler.df, PageHandler.app)
+        single_callbacks(PageHandler.result_dir, PageHandler.app)
+        PageHandler.overview_page = overview_layout(PageHandler.df, PageHandler.app)
+        PageHandler.single_page = single_layout
 
     @staticmethod
     def display_page(pathname):
         if pathname == "/":
             return PageHandler.overview_page
         else:
-            return PageHandler.single_page.layout(pathname)
+            return PageHandler.single_page(pathname)
