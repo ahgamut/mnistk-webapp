@@ -1,6 +1,15 @@
 import h5py
 import numpy as np
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve, auc
+from mnistk import NDArrayEncoder, NDArrayDecoder
+import json
+
+
+def dict_from_file(path):
+    ans = None
+    with open(path, "r") as f:
+        ans = json.load(f, cls=NDArrayDecoder)
+    return ans
 
 
 def get_scoring_dict(true_path, pred_path):
@@ -25,11 +34,11 @@ def get_split_data(truth, preds, scores):
             pd = scores[(truth == i) & (preds == j)]
             if len(pd) != 0:
                 answer[i, j] = np.mean(np.exp(pd), axis=0)
-    return answer.tolist()
+    return answer
 
 
 def get_confusion_data(cf):
-    cf_text = cf.astype("|U10")
+    cf_text = cf.astype("|U5")
     cf_correct = np.diag(np.diag(cf.astype(np.float32)))
     cf_wrong = cf - cf_correct
     a = cf_correct == 0

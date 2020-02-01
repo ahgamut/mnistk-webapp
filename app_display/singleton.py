@@ -9,16 +9,9 @@ from os.path import dirname, join
 import pandas as pd
 from flask import send_from_directory
 from .overview import halved_div
-from .utils import get_scoring_dict, random_colors
-from mnistk import Tester
+from .utils import get_scoring_dict, random_colors, dict_from_file
+from mnistk import Tester, NDArrayEncoder, NDArrayDecoder
 from mnistk.collect import get_records
-
-
-def dict_from_file(path):
-    ans = None
-    with open(path, "r") as f:
-        ans = json.load(f)
-    return ans
 
 
 class SPHandler(object):
@@ -69,7 +62,6 @@ class SPHandler(object):
             run_dir,
             list(int(x) for x in data_dict["dyn-props"]["test accuracy"].keys()),
         )
-
         layout = html.Div(
             children=[
                 html.H2("Performance Details"),
@@ -149,7 +141,10 @@ class SPHandler(object):
                     style=dict(width="75%"),
                 ),
                 html.Div(
-                    [html.Div(json.dumps(v), id=k) for k, v in data_dict.items()]
+                    [
+                        html.Div(json.dumps(v, cls=NDArrayEncoder), id=k)
+                        for k, v in data_dict.items()
+                    ]
                     + [
                         html.Div(str(epoch), id="current-epoch"),
                         html.Div(
@@ -178,7 +173,7 @@ class SPHandler(object):
         pt_click = lossClick["points"][0]
         if pt_hover["curveNumber"] != 1 or pt_click["curveNumber"] != 1:
             return dash.no_update, dash.no_update
-        dyn_props = json.loads(dyn_props)
+        dyn_props = json.loads(dyn_props, cls=NDArrayDecoder)
         testdata = sorted(
             ((int(x[0]), float(x[1])) for x in dyn_props["test loss"].items()),
             key=lambda x: int(x[0]),
@@ -229,7 +224,7 @@ class SPHandler(object):
         pt_hover = lossHover["points"][0]
         if pt_hover["curveNumber"] != 1:
             return dash.no_update, dash.no_update
-        dyn_props = json.loads(dyn_props)
+        dyn_props = json.loads(dyn_props, cls=NDArrayDecoder)
         epochs = list(dyn_props["test loss"].keys())
         highlight_epoch = str(pt_hover["x"])
 
@@ -299,10 +294,10 @@ class SPHandler(object):
     @staticmethod
     def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
         epoch = current_epoch
-        stat_props = json.loads(stat_props)
-        stat_rank = json.loads(stat_rank)
-        dyn_record = json.loads(dyn_records)[epoch]
-        dyn_rank = json.loads(dyn_rank)[epoch]
+        stat_props = json.loads(stat_props, cls=NDArrayDecoder)
+        stat_rank = json.loads(stat_rank, cls=NDArrayDecoder)
+        dyn_record = json.loads(dyn_records, cls=NDArrayDecoder)[epoch]
+        dyn_rank = json.loads(dyn_rank, cls=NDArrayDecoder)[epoch]
 
         def rankdf(df_dict, score_dict):
             df = pd.DataFrame(columns=df_dict["columns"], data=df_dict["data"])
@@ -388,7 +383,7 @@ class SPHandler(object):
                 yref="y",
             )
 
-        cf_data = json.loads(confusion_dict)[current_epoch]
+        cf_data = json.loads(confusion_dict, cls=NDArrayDecoder)[current_epoch]
         anno_text = [get_annotation(i, i, cf_data["text"][i][i]) for i in range(10)] + [
             get_annotation(i, j, cf_data["text"][j][i])
             for i in range(10)
@@ -456,7 +451,9 @@ class SPHandler(object):
     def pie_splits(accuHover, current_epoch, splits_dict, colors):
         epoch = int(current_epoch)
         pt = accuHover["points"][0]
-        sp_data = json.loads(splits_dict)[str(epoch)][pt["y"]][pt["x"]]
+        sp_data = json.loads(splits_dict, cls=NDArrayDecoder)[str(epoch)][
+            pt["y"], pt["x"]
+        ]
         to9 = list(range(10))
         if max(sp_data) == 0:
             return dash.no_update
