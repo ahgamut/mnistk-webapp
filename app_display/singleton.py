@@ -28,7 +28,7 @@ class SPHandler(object):
         SPHandler.app = app
 
 
-def set_layout(pathname0):
+def load_network_data(pathname0):
     pathname = pathname0.split("/")
     SPHandler.mod_name = pathname[1]
     SPHandler.mod_dir = join(SPHandler.result_dir, pathname[1])
@@ -39,7 +39,6 @@ def set_layout(pathname0):
     run = SPHandler.run
     epoch = SPHandler.epoch
     run_dir = join(mod_dir, "runs", run)
-
     data_dict = {}
     data_dict["stat-props"] = dict_from_file(join(mod_dir, "network.json"))
     data_dict["stat-rank"] = dict_from_file(join(mod_dir, "rankings.json"))
@@ -61,99 +60,129 @@ def set_layout(pathname0):
         run_dir,
         list(int(x) for x in data_dict["dyn-props"]["test accuracy"].keys()),
     )
-    layout = html.Div(
-        children=[
-            html.H2("Performance Details"),
-            halved_div(
-                html.Div(
-                    [
-                        dcc.Graph(id="accu-bars", config=dict(displayModeBar=False)),
-                        dcc.Graph(id="auc-bars", config=dict(displayModeBar=False)),
-                    ]
-                ),
-                dcc.Graph(
-                    id="loss-graph",
-                    hoverData={"points": [dict(curveNumber=1, x=epoch)]},
-                    clickData={"points": [dict(curveNumber=1, x=epoch)]},
-                    config=dict(displayModeBar=False),
-                ),
-            ),
-            html.P(
-                "AUC is ridiculously high every time, because there are a large number of true negative predictions."
-            ),
-            halved_div(
-                dcc.Graph(id="split-chart", config=dict(displayModeBar=False)),
-                dcc.Graph(
-                    id="accuracy-heatmap",
-                    hoverData={
-                        "points": [
-                            dict(
-                                x=0,
-                                y=0,
-                                z=data_dict["confusion-dict"][epoch]["correct"][0][0],
-                            )
-                        ]
-                    },
-                    config=dict(displayModeBar=False),
-                ),
-            ),
-            html.H2("View gradients with individual samples"),
+    return data_dict
+
+
+def layout_loss(epoch):
+    return [
+        html.H2("Performance Across Epochs"),
+        halved_div(
             html.Div(
                 [
-                    html.P(
-                        "Here you can test the network with samples from the test dataset and view the predictions"
-                    ),
-                    html.Div(id="network-area"),
-                ],
-                id="testing-samples",
-            ),
-            html.H2("Structure and Rankings"),
-            html.Div(
-                [
-                    html.P(
-                        [
-                            html.Span(
-                                [
-                                    html.Img(
-                                        id="single-struct",
-                                        src="/{}/network.svg".format(
-                                            SPHandler.mod_name
-                                        ),
-                                        style={"max-height": 1100, "max-width": 400,},
-                                    )
-                                ],
-                                className="marginnote",
-                            )
-                        ],
-                        id="net-structure",
-                    ),
-                    html.P(id="ranking-info"),
-                ],
-                id="ranking-div",
-                style=dict(width="75%"),
-            ),
-            html.Div(
-                [
-                    html.Div(json.dumps(v, cls=NDArrayEncoder), id=k)
-                    for k, v in data_dict.items()
+                    dcc.Graph(id="accu-bars", config=dict(displayModeBar=False)),
+                    dcc.Graph(id="auc-bars", config=dict(displayModeBar=False)),
                 ]
-                + [
-                    html.Div(str(epoch), id="current-epoch"),
-                    html.Div(
-                        json.dumps(
-                            {"pie-splits": random_colors(s=0.85, v=0.4, num_colors=10)}
-                        ),
-                        id="graph-colors",
-                    ),
-                ],
-                id="data-dict",
-                style=dict(display="none"),
             ),
-            dcc.Link("Go Back to Overview", href="/"),
-        ],
+            dcc.Graph(
+                id="loss-graph",
+                hoverData={"points": [dict(curveNumber=1, x=epoch)]},
+                clickData={"points": [dict(curveNumber=1, x=epoch)]},
+                config=dict(displayModeBar=False),
+            ),
+        ),
+    ]
+
+
+def layout_detail(zval):
+    return [
+        html.H2("Distribution of Predictions"),
+        html.P(
+            "AUC is ridiculously high every time, because there are a large number of true negative predictions."
+        ),
+        halved_div(
+            dcc.Graph(id="split-chart", config=dict(displayModeBar=False)),
+            dcc.Graph(
+                id="accuracy-heatmap",
+                hoverData={"points": [dict(x=0, y=0, z=zval,)]},
+                config=dict(displayModeBar=False),
+            ),
+        ),
+    ]
+
+
+def layout_testing():
+    return [
+        html.H2("How a prediction occurred"),
+        html.Div(
+            [
+                html.P(
+                    "Here you can test the network with samples from the test dataset and view the predictions"
+                ),
+                html.Div(id="network-area"),
+            ],
+            id="testing-samples",
+        ),
+    ]
+
+
+def layout_rankings():
+    return [
+        html.H2("Structure and Rankings"),
+        html.Div(
+            [
+                html.P(
+                    [
+                        html.Span(
+                            [
+                                html.Img(
+                                    id="single-struct",
+                                    src="/{}/network.svg".format(SPHandler.mod_name),
+                                    style={"max-height": 1100, "max-width": 400,},
+                                )
+                            ],
+                            className="marginnote",
+                        )
+                    ],
+                    id="net-structure",
+                ),
+                html.P(id="ranking-info"),
+            ],
+            id="ranking-div",
+            style=dict(width="75%"),
+        ),
+    ]
+
+
+def layout_hidden(data_dict, epoch):
+    return [
+        html.Div(
+            [
+                html.Div(json.dumps(v, cls=NDArrayEncoder), id=k)
+                for k, v in data_dict.items()
+            ]
+            + [
+                html.Div(str(epoch), id="current-epoch"),
+                html.Div(
+                    json.dumps(
+                        {"pie-splits": random_colors(s=0.85, v=0.4, num_colors=10)}
+                    ),
+                    id="graph-colors",
+                ),
+            ],
+            id="data-dict",
+            style=dict(display="none"),
+        ),
+    ]
+
+
+def set_layout(pathname0):
+    data_dict = load_network_data(pathname0)
+    epoch = SPHandler.epoch
+    layout = html.Div(
+        children=layout_loss(epoch)
+        + layout_detail(data_dict["confusion-dict"][epoch]["correct"][0][0])
+        + layout_testing()
+        + layout_rankings()
+        + layout_hidden(data_dict, epoch)
+        + [dcc.Link("Go Back to Overview", href="/"),],
         id="single-content",
     )
     return layout
+
+
+######################
+# Callback functions #
+######################
 
 
 def loss_function(lossHover, lossClick, dyn_props, current_epoch):

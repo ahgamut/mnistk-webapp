@@ -28,7 +28,6 @@ class PageHandler(object):
             children=[
                 dcc.Location(id="url", refresh=True),
                 html.H1(["mnistk - 1001 generated networks on MNIST"]),
-                html.P("some nice subtitle text here", className="subtitle"),
                 html.Div(id="page-content"),
             ]
         )

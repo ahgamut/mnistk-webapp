@@ -38,14 +38,14 @@ def halved_div(func, func2="", split=50):
     return div
 
 
-def filter_options(df):
-    filter_opts = []
+def snapshot_options(df):
+    snapshot_opts = []
     for (r, e), _ in df.groupby(["run", "epoch"]):
-        filter_opts.append(lv("run {}, epoch {}".format(r, e), "{}|{}".format(r, e)))
-    default = filter_opts[0]["value"]
+        snapshot_opts.append(lv("run {}, epoch {}".format(r, e), "{}|{}".format(r, e)))
+    default = snapshot_opts[0]["value"]
     dropdown = dcc.Dropdown(
-        id="filter-options",
-        options=filter_opts,
+        id="snapshot-options",
+        options=snapshot_opts,
         multi=True,
         value=[],
         placeholder="Showing all runs; select run(s) here",
@@ -154,7 +154,7 @@ class DataHandler(object):
 
     @staticmethod
     def subsetting(
-        filter_opt=[],
+        snapshot_opt=[],
         group_opt="Network Style|groupname",
         xval="Time taken|time",
         x_range=[0, 100],
@@ -162,14 +162,14 @@ class DataHandler(object):
         y_range=[0, 100],
     ):
         df_full = DataHandler.df_full
-        if isinstance(filter_opt, str):
-            filter_opt = [filter_opt]
-        if len(filter_opt) == 0:
+        if isinstance(snapshot_opt, str):
+            snapshot_opt = [snapshot_opt]
+        if len(snapshot_opt) == 0:
             df = df_full
         else:
-            filter_opt = [x.split("|")[1:] for x in filter_opt]
-            runs = set([x[0] for x in filter_opt])
-            epochs = set([int(x[1]) for x in filter_opt])
+            snapshot_opt = [x.split("|")[1:] for x in snapshot_opt]
+            runs = set([x[0] for x in snapshot_opt])
+            epochs = set([int(x[1]) for x in snapshot_opt])
             df = df_full[
                 (
                     df_full["run"].apply(lambda x: x in runs)
@@ -225,7 +225,12 @@ class DataHandler(object):
                 columns=[{"name": col, "id": col} for col in col_order],
                 data=df2.to_dict("records"),
                 style_table={"overflowX": "scroll"},
-                style_cell={"overflow": "hidden", "textOverflow": "ellipsis"},
+                style_cell={
+                    "overflow": "hidden",
+                    "textOverflow": "ellipsis",
+                    "font-family": "et-book",
+                    "font-size": 20,
+                },
                 style_header={
                     "backgroundColor": "rgb(230, 230, 230)",
                     "fontWeight": "bold",
@@ -236,7 +241,7 @@ class DataHandler(object):
                 style_data_conditional=[
                     {
                         "if": dict(
-                            column_id=x, filter_query="{%s} ge %.6f" % (x, max(df2[x]))
+                            column_id=x, filter_query="{%s} ge %.6f" % (x, max(df2[x])),
                         ),
                         "fontWeight": "bold",
                         "backgroundColor": "rgb(102,255,51)",
@@ -246,7 +251,7 @@ class DataHandler(object):
                 + [
                     {
                         "if": dict(
-                            column_id=x, filter_query="{%s} le %.6f" % (x, min(df2[x]))
+                            column_id=x, filter_query="{%s} le %.6f" % (x, min(df2[x])),
                         ),
                         "font-style": "italic",
                         "backgroundColor": "rgb(102,255,51)",
@@ -312,7 +317,7 @@ class DataHandler(object):
 def set_callbacks(df, app):
     dh = DataHandler(df)
     inputs = [
-        dd.Input(component_id="filter-options", component_property="value"),
+        dd.Input(component_id="snapshot-options", component_property="value"),
         dd.Input(component_id="grouping-options", component_property="value"),
         dd.Input(component_id="perfx-dropdown", component_property="value"),
         dd.Input(component_id="perfx-range", component_property="value"),
@@ -339,7 +344,7 @@ def set_callbacks(df, app):
 def set_layout(df, app):
     x_select = xvalue_options()
     y_select = yvalue_options()
-    filt_select = filter_options(df)
+    snap_select = snapshot_options(df)
     gp_select = grouping_options()
 
     layout = html.Div(
@@ -352,7 +357,7 @@ def set_layout(df, app):
                 className="fullwidth",
                 config=dict(displayModeBar=False),
             ),
-            html.P([x_select, y_select, filt_select, gp_select]),
+            html.P([x_select, y_select, snap_select, gp_select]),
             html.Div(html.P("", id="figure-click")),
             html.H2("The Top Ten"),
             html.Div(id="top10-div", className="fullwidth"),
