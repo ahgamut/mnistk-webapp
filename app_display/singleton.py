@@ -28,6 +28,11 @@ class SPHandler(object):
         SPHandler.app = app
 
 
+####################
+# Layout functions #
+####################
+
+
 def load_network_data(pathname0):
     pathname = pathname0.split("/")
     SPHandler.mod_name = pathname[1]

@@ -15,6 +15,36 @@ import dash_html_components as html
 import dash.dependencies as dd
 import dash_table as dtable
 from plotly import graph_objects as go
+import sqlalchemy as sa
+from pandas import read_sql_query
+
+
+class DataHandler(object):
+    engine = None
+    ignore_columns = [
+        "activation",
+        "groupname",
+        "formname",
+        "loss",
+        "rank",
+        "rank_gp",
+        "rank_form",
+        "rank_snap",
+    ]
+    x_columns = ["time", "#params", "memory per pass", "#layers", "#ops"]
+    y_columns = (
+        ["accuracy", "AUC"]
+        + ["accuracy_{}".format(i) for i in range(10)]
+        + ["AUC_{}".format(i) for i in range(10)]
+    )
+
+    def __init__(self, db_path):
+        DataHandler.engine = sa.create_engine("sqlite:///{}".format(db_path))
+
+
+####################
+# Layout functions #
+####################
 
 
 def lv(label, value, vlabel=None):
@@ -38,9 +68,17 @@ def halved_div(func, func2="", split=50):
     return div
 
 
-def snapshot_options(df):
+def snapshot_options():
     snapshot_opts = []
-    for (r, e), _ in df.groupby(["run", "epoch"]):
+    df = read_sql_query(
+        sa.select([sa.column("run"), sa.column("epoch")])
+        .distinct()
+        .select_from(sa.table("summary")),
+        DataHandler.engine,
+    )
+    for i in range(len(df)):
+        r = df.loc[i, "run"]
+        e = df.loc[i, "epoch"]
         snapshot_opts.append(lv("run {}, epoch {}".format(r, e), "{}|{}".format(r, e)))
     default = snapshot_opts[0]["value"]
     dropdown = dcc.Dropdown(
@@ -90,6 +128,18 @@ def xvalue_options():
     return html.Div([div0, div1])
 
 
+def get_ranges():
+    range_dict = {}
+    for colstr in DataHandler.x_columns + DataHandler.y_columns:
+        col = sa.column(colstr)
+        query = sa.select([sa.func.min(col), sa.func.max(col)]).select_from(
+            sa.table("summary")
+        )
+        a, b = read_sql_query(query, DataHandler.engine).iloc[0, :]
+        range_dict[colstr] = [a, b]
+    return range_dict
+
+
 def yvalue_options():
     yval_opts = (
         [lv("Overall Accuracy", "accuracy"), lv("Overall AUC", "AUC")]
@@ -129,193 +179,205 @@ def yvalue_options():
     return html.Div([div0, div1])
 
 
-class DataHandler(object):
-    df_full = None
-    df_subset = None
-    ignore_columns = [
-        "activation",
-        "groupname",
-        "formname",
-        "loss",
-        "rank",
-        "rank_gp",
-        "rank_form",
-        "rank_snap",
-    ]
-    measure_columns = (
-        ["accuracy", "AUC"]
-        + ["accuracy_{}".format(i) for i in range(10)]
-        + ["AUC_{}".format(i) for i in range(10)]
+def set_layout():
+    x_select = xvalue_options()
+    y_select = yvalue_options()
+    snap_select = snapshot_options()
+    gp_select = grouping_options()
+
+    layout = html.Div(
+        children=[
+            html.Div(html.P("Some talk here about what this page is")),
+            html.H2("View the performance of a thousand neural networks"),
+            html.Div(
+                json.dumps(get_ranges()), id="ranges-div", style=dict(display="none"),
+            ),
+            dcc.Graph(
+                id="perf-graph",
+                className="fullwidth",
+                config=dict(displayModeBar=False),
+            ),
+            html.P([snap_select, x_select, y_select, gp_select]),
+            html.H2("The Top Ten"),
+            html.Div(id="top10-div", className="fullwidth"),
+        ],
+        id="overview-content",
+    )
+    return layout
+
+
+######################
+# Callback functions #
+######################
+
+
+def top10table(expr, options):
+    xtitle, xcol = options["xtitle"], options["xcol"]
+    ytitle, ycol = options["ytitle"], options["ycol"]
+
+    df_clause = (
+        sa.select(["*"])
+        .select_from(sa.table("summary"))
+        .where(expr)
+        .order_by(sa.desc(sa.column(ycol)))
+        .limit(10)
+    )
+    df = read_sql_query(df_clause, DataHandler.engine)
+    df2 = df.sort_values(by=[ycol, xcol], ascending=[False, True]).round(6)
+    important = set([ycol, "accuracy", "AUC"])
+    col_order = (
+        ["name", "run", "epoch"]
+        + DataHandler.x_columns
+        + list(sorted(set(important)))
+        + list(sorted(set(DataHandler.y_columns) - important))
+    )
+    dt = (
+        dtable.DataTable(
+            id="top10-table",
+            columns=[{"name": col, "id": col} for col in col_order],
+            data=df2.to_dict("records"),
+            style_table={"overflowX": "scroll"},
+            style_cell={
+                "overflow": "hidden",
+                "textOverflow": "ellipsis",
+                "font-family": "et-book",
+                "font-size": 20,
+            },
+            style_header={
+                "backgroundColor": "rgb(230, 230, 230)",
+                "fontWeight": "bold",
+                "font-family": "et-book",
+                "font-size": 20,
+            },
+            fill_width=False,
+            style_data_conditional=[
+                {
+                    "if": dict(
+                        column_id=x, filter_query="{%s} ge %.6f" % (x, max(df2[x])),
+                    ),
+                    "fontWeight": "bold",
+                    "backgroundColor": "rgb(102,255,51)",
+                }
+                for x in DataHandler.y_columns
+            ]
+            + [
+                {
+                    "if": dict(
+                        column_id=x, filter_query="{%s} le %.6f" % (x, min(df2[x])),
+                    ),
+                    "font-style": "italic",
+                    "backgroundColor": "rgb(102,255,51)",
+                }
+                for x in DataHandler.x_columns
+            ],
+        ),
+    )
+    return dt
+
+
+def figure(expr, options):
+    gp_title, gp_opt = options["gp_title"], options["gp_opt"]
+    xtitle, xcol = options["xtitle"], options["xcol"]
+    ytitle, ycol = options["ytitle"], options["ycol"]
+
+    required_cols = ["name", "run", "epoch", gp_opt, xcol, ycol]
+    df_clause = (
+        sa.select([sa.column(x) for x in required_cols])
+        .select_from(sa.table("summary"))
+        .where(expr)
+    )
+    df = read_sql_query(df_clause, DataHandler.engine)
+    ans = {
+        "data": [
+            go.Scattergl(
+                x=gp[xcol],
+                y=gp[ycol],
+                mode="markers",
+                marker=dict(size=12),
+                opacity=0.6,
+                name=gname,
+                text=gp["name"],
+                customdata="run " + gp["run"] + ", epoch " + gp["epoch"].astype(str),
+                hovertemplate="(x=%{x}, y=%{y})<br>%{text}<extra>%{customdata}</extra>",
+            )
+            for gname, gp in df.groupby(gp_opt)
+        ],
+        "layout": dict(
+            hovermode="closest",
+            transition=dict(duration=700),
+            xaxis={"title": xtitle},
+            yaxis={"title": ytitle},
+            height="700",
+            font={"family": "et-book", "size": 15},
+            clickmode="event",
+        ),
+    }
+    return ans
+
+
+def subsetting(snapshot_opt, group_opt, xval, x_range, yval, y_range, ranges_str):
+    if isinstance(snapshot_opt, str):
+        snapshot_opt = [snapshot_opt]
+
+    expr = sa.true()
+    run = sa.column("run")
+    epoch = sa.column("epoch")
+
+    if len(snapshot_opt) == 0:
+        expr = sa.true()
+    else:
+        snapshot_opt = [x.split("|")[1:] for x in snapshot_opt]
+        expr = sa.false()
+        for r, e in snapshot_opt:
+            expr = expr | ((run == r) & (epoch == int(e)))
+
+    # expr is an sqlalchemy expression that will end up inside a where
+    xtitle, xcol = xval.split("|")
+    ytitle, ycol = yval.split("|")
+    gp_title, gp_opt = group_opt.split("|")
+
+    range_dict = json.loads(ranges_str)
+    xmin, xmax = range_dict[xcol]
+    xleft = xmin + (xmax - xmin) * (0.01) * (x_range[0])
+    xright = xmin + (xmax - xmin) * (0.01) * (x_range[1])
+
+    ymin, ymax = range_dict[ycol]
+    yleft = ymin + (ymax - ymin) * (0.01) * (y_range[0])
+    yright = ymin + (ymax - ymin) * (0.01) * (y_range[1])
+
+    xval = sa.column(xcol)
+    yval = sa.column(ycol)
+    expr = (expr) & xval.between(xleft, xright) & yval.between(yleft, yright)
+    parsed_options = dict(
+        xtitle=xtitle,
+        xcol=xcol,
+        ytitle=ytitle,
+        ycol=ycol,
+        gp_title=gp_title,
+        gp_opt=gp_opt,
     )
 
-    def __init__(self, df_full):
-        DataHandler.df_full = df_full
-        option_string = self.subsetting()
-
-    @staticmethod
-    def subsetting(
-        snapshot_opt=[],
-        group_opt="Network Style|groupname",
-        xval="Time taken|time",
-        x_range=[0, 100],
-        yval="Overall Accuracy|accuracy",
-        y_range=[0, 100],
-    ):
-        df_full = DataHandler.df_full
-        if isinstance(snapshot_opt, str):
-            snapshot_opt = [snapshot_opt]
-        if len(snapshot_opt) == 0:
-            df = df_full
-        else:
-            snapshot_opt = [x.split("|")[1:] for x in snapshot_opt]
-            runs = set([x[0] for x in snapshot_opt])
-            epochs = set([int(x[1]) for x in snapshot_opt])
-            df = df_full[
-                (
-                    df_full["run"].apply(lambda x: x in runs)
-                    & df_full["epoch"].apply(lambda x: x in epochs)
-                )
-            ]
-
-        xtitle, xcol = xval.split("|")
-        ytitle, ycol = yval.split("|")
-        gp_title, gp_opt = group_opt.split("|")
-        xmin, xmax = min(df[xcol]), max(df[xcol])
-        xleft = xmin + (xmax - xmin) * (0.01) * (x_range[0])
-        xright = xmin + (xmax - xmin) * (0.01) * (x_range[1])
-
-        ymin, ymax = min(df[ycol]), max(df[ycol])
-        yleft = ymin + (ymax - ymin) * (0.01) * (y_range[0])
-        yright = ymin + (ymax - ymin) * (0.01) * (y_range[1])
-
-        df = df[
-            (df[xcol] >= xleft)
-            & (df[ycol] >= yleft)
-            & (df[xcol] <= xright)
-            & (df[ycol] <= yright)
-        ]
-        DataHandler.df_subset = df
-        parsed_options = dict(
-            xtitle=xtitle,
-            xcol=xcol,
-            ytitle=ytitle,
-            ycol=ycol,
-            gp_title=gp_title,
-            gp_opt=gp_opt,
-        )
-        return json.dumps(parsed_options)
-
-    @staticmethod
-    def top10table(option_string):
-        df = DataHandler.df_subset
-        options = json.loads(option_string)
-        xtitle, xcol = options["xtitle"], options["xcol"]
-        ytitle, ycol = options["ytitle"], options["ycol"]
-
-        df2 = df.sort_values(by=[ycol, xcol], ascending=[False, True]).head(10).round(6)
-        important = set([ycol, "accuracy", "AUC"])
-        col_order = (
-            ["name", "run", "epoch", "time", "#params", "memory per pass"]
-            + list(sorted(set(important)))
-            + list(sorted(set(DataHandler.measure_columns) - important))
-        )
-        dt = (
-            dtable.DataTable(
-                id="top10-table",
-                columns=[{"name": col, "id": col} for col in col_order],
-                data=df2.to_dict("records"),
-                style_table={"overflowX": "scroll"},
-                style_cell={
-                    "overflow": "hidden",
-                    "textOverflow": "ellipsis",
-                    "font-family": "et-book",
-                    "font-size": 20,
-                },
-                style_header={
-                    "backgroundColor": "rgb(230, 230, 230)",
-                    "fontWeight": "bold",
-                    "font-family": "et-book",
-                    "font-size": 20,
-                },
-                fill_width=False,
-                style_data_conditional=[
-                    {
-                        "if": dict(
-                            column_id=x, filter_query="{%s} ge %.6f" % (x, max(df2[x])),
-                        ),
-                        "fontWeight": "bold",
-                        "backgroundColor": "rgb(102,255,51)",
-                    }
-                    for x in DataHandler.measure_columns
-                ]
-                + [
-                    {
-                        "if": dict(
-                            column_id=x, filter_query="{%s} le %.6f" % (x, min(df2[x])),
-                        ),
-                        "font-style": "italic",
-                        "backgroundColor": "rgb(102,255,51)",
-                    }
-                    for x in ["time", "#params", "memory per pass"]
-                ],
-            ),
-        )
-        return dt
-
-    @staticmethod
-    def figure(option_string):
-        df = DataHandler.df_subset
-        options = json.loads(option_string)
-        gp_title, gp_opt = options["gp_title"], options["gp_opt"]
-        xtitle, xcol = options["xtitle"], options["xcol"]
-        ytitle, ycol = options["ytitle"], options["ycol"]
-        ans = {
-            "data": [
-                go.Scattergl(
-                    x=gp[xcol],
-                    y=gp[ycol],
-                    mode="markers",
-                    marker=dict(size=12),
-                    opacity=0.6,
-                    name=gname,
-                    text=gp["name"],
-                    customdata="run "
-                    + gp["run"]
-                    + ", epoch "
-                    + gp["epoch"].astype(str),
-                    hovertemplate="(x=%{x}, y=%{y})<br>%{text}<extra>%{customdata}</extra>",
-                )
-                for gname, gp in df.groupby(gp_opt)
-            ],
-            "layout": dict(
-                hovermode="closest",
-                transition=dict(duration=700),
-                xaxis={"title": xtitle},
-                yaxis={"title": ytitle},
-                height="700",
-                font={"family": "et-book", "size": 15},
-                clickmode="event",
-            ),
-        }
-        return ans
-
-    @staticmethod
-    def data_select(clickData):
-        if clickData is None:
-            return dash.no_update
-        pt = clickData["points"][0]
-        run, ep = (
-            pt["customdata"]
-            .replace("run", "")
-            .replace("epoch", "")
-            .replace(" ", "")
-            .split(",")
-        )
-        return "/{}/{}/{}".format(pt["text"], run, ep)
+    fig = figure(expr, parsed_options)
+    table = top10table(expr, parsed_options)
+    return fig, table
 
 
-def set_callbacks(df, app):
-    dh = DataHandler(df)
+def data_select(clickData):
+    if clickData is None:
+        return dash.no_update
+    pt = clickData["points"][0]
+    run, ep = (
+        pt["customdata"]
+        .replace("run", "")
+        .replace("epoch", "")
+        .replace(" ", "")
+        .split(",")
+    )
+    return "/{}/{}/{}".format(pt["text"], run, ep)
+
+
+def set_callbacks(db_path, app):
+    dh = DataHandler(db_path)
     inputs = [
         dd.Input(component_id="snapshot-options", component_property="value"),
         dd.Input(component_id="grouping-options", component_property="value"),
@@ -325,43 +387,14 @@ def set_callbacks(df, app):
         dd.Input(component_id="perfy-range", component_property="value"),
     ]
     app.callback(
-        dd.Output(component_id="compute-div1", component_property="children"), inputs
-    )(DataHandler.subsetting)
-    app.callback(
-        dd.Output(component_id="perf-graph", component_property="figure"),
-        [dd.Input(component_id="compute-div1", component_property="children")],
-    )(DataHandler.figure)
-    app.callback(
-        dd.Output(component_id="top10-div", component_property="children"),
-        [dd.Input(component_id="compute-div1", component_property="children")],
-    )(DataHandler.top10table)
+        [
+            dd.Output(component_id="perf-graph", component_property="figure"),
+            dd.Output(component_id="top10-div", component_property="children"),
+        ],
+        inputs,
+        [dd.State("ranges-div", "children")],
+    )(subsetting)
     app.callback(
         dd.Output(component_id="url", component_property="pathname"),
         [dd.Input(component_id="perf-graph", component_property="clickData")],
-    )(DataHandler.data_select)
-
-
-def set_layout(df, app):
-    x_select = xvalue_options()
-    y_select = yvalue_options()
-    snap_select = snapshot_options(df)
-    gp_select = grouping_options()
-
-    layout = html.Div(
-        children=[
-            html.Div(html.P("Some talk here about what this page is")),
-            html.H2("View the performance of a thousand neural networks"),
-            html.Div(id="compute-div1", children="options", style={"display": "none"}),
-            dcc.Graph(
-                id="perf-graph",
-                className="fullwidth",
-                config=dict(displayModeBar=False),
-            ),
-            html.P([x_select, y_select, snap_select, gp_select]),
-            html.Div(html.P("", id="figure-click")),
-            html.H2("The Top Ten"),
-            html.Div(id="top10-div", className="fullwidth"),
-        ],
-        id="overview-content",
-    )
-    return layout
+    )(data_select)

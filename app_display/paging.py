@@ -39,9 +39,11 @@ class PageHandler(object):
 
     @staticmethod
     def setup_pages():
-        overview_callbacks(PageHandler.df, PageHandler.app)
+        overview_callbacks(
+            os.path.join(PageHandler.result_dir, "summary.db"), PageHandler.app
+        )
         single_callbacks(PageHandler.result_dir, PageHandler.app)
-        PageHandler.overview_page = overview_layout(PageHandler.df, PageHandler.app)
+        PageHandler.overview_page = overview_layout()
         PageHandler.single_page = single_layout
 
     @staticmethod
