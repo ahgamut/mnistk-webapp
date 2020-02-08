@@ -17,39 +17,7 @@ import dash_table as dtable
 from plotly import graph_objects as go
 import sqlalchemy as sa
 from pandas import read_sql_query
-
-
-class DataHandler(object):
-    engine = None
-    ignore_columns = [
-        "activation",
-        "groupname",
-        "formname",
-        "loss",
-        "rank",
-        "rank_gp",
-        "rank_form",
-        "rank_snap",
-    ]
-    x_columns = ["time", "#params", "memory per pass", "#layers", "#ops"]
-    y_columns = (
-        ["accuracy", "AUC"]
-        + ["accuracy_{}".format(i) for i in range(10)]
-        + ["AUC_{}".format(i) for i in range(10)]
-    )
-
-    def __init__(self, db_path):
-        DataHandler.engine = sa.create_engine("sqlite:///{}".format(db_path))
-
-
-####################
-# Layout functions #
-####################
-
-
-def lv(label, value, vlabel=None):
-    vlab = label if vlabel is None else vlabel
-    return {"label": label, "value": "{}|{}".format(vlab, value)}
+from .utils import lv
 
 
 def halved_div(func, func2="", split=50):
@@ -68,13 +36,42 @@ def halved_div(func, func2="", split=50):
     return div
 
 
+class OverviewConst(object):
+    db_path = None
+    ignore_columns = [
+        "activation",
+        "groupname",
+        "formname",
+        "loss",
+        "rank",
+        "rank_gp",
+        "rank_form",
+        "rank_snap",
+    ]
+    x_columns = ["time", "#params", "memory per pass", "#layers", "#ops"]
+    y_columns = (
+        ["accuracy", "AUC"]
+        + ["accuracy_{}".format(i) for i in range(10)]
+        + ["AUC_{}".format(i) for i in range(10)]
+    )
+
+    def __init__(self, db_path):
+        OverviewConst.db_path = db_path
+
+
+####################
+# Layout functions #
+####################
+
+
 def snapshot_options():
     snapshot_opts = []
+    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
     df = read_sql_query(
         sa.select([sa.column("run"), sa.column("epoch")])
         .distinct()
         .select_from(sa.table("summary")),
-        DataHandler.engine,
+        engine,
     )
     for i in range(len(df)):
         r = df.loc[i, "run"]
@@ -130,12 +127,13 @@ def xvalue_options():
 
 def get_ranges():
     range_dict = {}
-    for colstr in DataHandler.x_columns + DataHandler.y_columns:
+    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
+    for colstr in OverviewConst.x_columns + OverviewConst.y_columns:
         col = sa.column(colstr)
         query = sa.select([sa.func.min(col), sa.func.max(col)]).select_from(
             sa.table("summary")
         )
-        a, b = read_sql_query(query, DataHandler.engine).iloc[0, :]
+        a, b = read_sql_query(query, engine).iloc[0, :]
         range_dict[colstr] = [a, b]
     return range_dict
 
@@ -222,14 +220,15 @@ def top10table(expr, options):
         .order_by(sa.desc(sa.column(ycol)))
         .limit(10)
     )
-    df = read_sql_query(df_clause, DataHandler.engine)
+    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
+    df = read_sql_query(df_clause, engine)
     df2 = df.sort_values(by=[ycol, xcol], ascending=[False, True]).round(6)
     important = set([ycol, "accuracy", "AUC"])
     col_order = (
         ["name", "run", "epoch"]
-        + DataHandler.x_columns
+        + OverviewConst.x_columns
         + list(sorted(set(important)))
-        + list(sorted(set(DataHandler.y_columns) - important))
+        + list(sorted(set(OverviewConst.y_columns) - important))
     )
     dt = (
         dtable.DataTable(
@@ -258,7 +257,7 @@ def top10table(expr, options):
                     "fontWeight": "bold",
                     "backgroundColor": "rgb(102,255,51)",
                 }
-                for x in DataHandler.y_columns
+                for x in OverviewConst.y_columns
             ]
             + [
                 {
@@ -268,7 +267,7 @@ def top10table(expr, options):
                     "font-style": "italic",
                     "backgroundColor": "rgb(102,255,51)",
                 }
-                for x in DataHandler.x_columns
+                for x in OverviewConst.x_columns
             ],
         ),
     )
@@ -280,13 +279,14 @@ def figure(expr, options):
     xtitle, xcol = options["xtitle"], options["xcol"]
     ytitle, ycol = options["ytitle"], options["ycol"]
 
+    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
     required_cols = ["name", "run", "epoch", gp_opt, xcol, ycol]
     df_clause = (
         sa.select([sa.column(x) for x in required_cols])
         .select_from(sa.table("summary"))
         .where(expr)
     )
-    df = read_sql_query(df_clause, DataHandler.engine)
+    df = read_sql_query(df_clause, engine)
     ans = {
         "data": [
             go.Scattergl(
@@ -377,7 +377,7 @@ def data_select(clickData):
 
 
 def set_callbacks(db_path, app):
-    dh = DataHandler(db_path)
+    dh = OverviewConst(db_path)
     inputs = [
         dd.Input(component_id="snapshot-options", component_property="value"),
         dd.Input(component_id="grouping-options", component_property="value"),

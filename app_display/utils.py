@@ -3,28 +3,41 @@ import numpy as np
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve, auc
 from mnistk import NDArrayEncoder, NDArrayDecoder
 import json
-
-
-def dict_from_file(path):
-    ans = None
-    with open(path, "r") as f:
-        ans = json.load(f, cls=NDArrayDecoder)
-    return ans
+import pandas as pd
+import dash_html_components as html
 
 
 def get_scoring_dict(true_path, pred_path):
     confusion = {}
     splits = {}
+    samples = {}
+    df = pd.DataFrame(
+        data=np.zeros((10000, 2), dtype=np.int32), columns=["truth", "preds"]
+    )
     with h5py.File(true_path, "r") as f_true:
-        truth = np.array(f_true.get("truth"))
+        df["truth"] = f_true.get("truth")
         with h5py.File(pred_path, "r") as f_pred:
             for epoch in f_pred.keys():
-                preds = np.array(f_pred.get("{}/preds".format(epoch)))
+                df["preds"] = f_pred.get("{}/preds".format(epoch))
                 scores = np.array(f_pred.get("{}/scores".format(epoch)))
-                cf = confusion_matrix(truth, preds)
+                cf = confusion_matrix(df["truth"], df["preds"])
                 confusion[int(epoch)] = get_confusion_data(cf)
-                splits[int(epoch)] = get_split_data(truth, preds, scores)
-    return confusion, splits
+                splits[int(epoch)] = get_split_data(df["truth"], df["preds"], scores)
+                samples[int(epoch)] = get_samples(df)
+    return confusion, splits, samples
+
+
+def get_samples(df, size=3):
+    ans = {}
+    for (t, p), g in df.groupby(["truth", "preds"]):
+        k = int(t) * 10 + int(p)
+        if len(g) > size:
+            ans[k] = np.int32(np.random.choice(g.index, size=size, replace=False))
+        elif len(g) > 0:
+            ans[k] = np.int32(g.index)
+        else:
+            ans[k] = []
+    return ans
 
 
 def get_split_data(truth, preds, scores):
@@ -53,6 +66,18 @@ def get_confusion_data(cf):
         cmax=np.nanmax(cf_correct).tolist(),
         text=cf_text.tolist(),
     )
+    return ans
+
+
+def lv(label, value, vlabel=None):
+    vlab = label if vlabel is None else vlabel
+    return {"label": label, "value": "{}|{}".format(vlab, value)}
+
+
+def dict_from_file(path):
+    ans = None
+    with open(path, "r") as f:
+        ans = json.load(f, cls=NDArrayDecoder)
     return ans
 
 

@@ -4,21 +4,15 @@ import dash_html_components as html
 import dash.dependencies as dd
 from .overview import set_layout as overview_layout, set_callbacks as overview_callbacks
 from .singleton import set_layout as single_layout, set_callbacks as single_callbacks
-import pandas as pd
 import sys, os
 
 
 class PageHandler(object):
     app = None
-    df = None
-    overview_page = None
-    single_page = None
     result_dir = None
 
     def __init__(self, result_dir):
         PageHandler.result_dir = result_dir
-        csv_path = os.path.join(result_dir, "summary.csv")
-        PageHandler.df = pd.read_csv(csv_path, header=0)
         external_css = [
             "https://cdnjs.cloudflare.com/ajax/libs/tufte-css/1.7.2/tufte.css"
         ]
@@ -31,24 +25,22 @@ class PageHandler(object):
                 html.Div(id="page-content"),
             ]
         )
-        PageHandler.setup_pages()
+        setup_pages()
         PageHandler.app.callback(
             dd.Output(component_id="page-content", component_property="children"),
             [dd.Input(component_id="url", component_property="pathname")],
-        )(PageHandler.display_page)
+        )(display_page)
 
-    @staticmethod
-    def setup_pages():
-        overview_callbacks(
-            os.path.join(PageHandler.result_dir, "summary.db"), PageHandler.app
-        )
-        single_callbacks(PageHandler.result_dir, PageHandler.app)
-        PageHandler.overview_page = overview_layout()
-        PageHandler.single_page = single_layout
 
-    @staticmethod
-    def display_page(pathname):
-        if pathname == "/":
-            return PageHandler.overview_page
-        else:
-            return PageHandler.single_page(pathname)
+def setup_pages():
+    overview_callbacks(
+        os.path.join(PageHandler.result_dir, "summary.db"), PageHandler.app
+    )
+    single_callbacks(PageHandler.result_dir, PageHandler.app)
+
+
+def display_page(pathname):
+    if pathname == "/":
+        return overview_layout()
+    else:
+        return single_layout(pathname)
