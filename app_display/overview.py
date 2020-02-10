@@ -18,6 +18,7 @@ from plotly import graph_objects as go
 import sqlalchemy as sa
 from pandas import read_sql_query
 from .utils import lv
+from app import app, Constants
 
 
 def halved_div(func, func2="", split=50):
@@ -36,29 +37,6 @@ def halved_div(func, func2="", split=50):
     return div
 
 
-class OverviewConst(object):
-    db_path = None
-    ignore_columns = [
-        "activation",
-        "groupname",
-        "formname",
-        "loss",
-        "rank",
-        "rank_gp",
-        "rank_form",
-        "rank_snap",
-    ]
-    x_columns = ["time", "#params", "memory per pass", "#layers", "#ops"]
-    y_columns = (
-        ["accuracy", "AUC"]
-        + ["accuracy_{}".format(i) for i in range(10)]
-        + ["AUC_{}".format(i) for i in range(10)]
-    )
-
-    def __init__(self, db_path):
-        OverviewConst.db_path = db_path
-
-
 ####################
 # Layout functions #
 ####################
@@ -66,7 +44,7 @@ class OverviewConst(object):
 
 def snapshot_options():
     snapshot_opts = []
-    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
+    engine = sa.create_engine("sqlite:///{}".format(Constants.db_path))
     df = read_sql_query(
         sa.select([sa.column("run"), sa.column("epoch")])
         .distinct()
@@ -127,8 +105,8 @@ def xvalue_options():
 
 def get_ranges():
     range_dict = {}
-    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
-    for colstr in OverviewConst.x_columns + OverviewConst.y_columns:
+    engine = sa.create_engine("sqlite:///{}".format(Constants.db_path))
+    for colstr in Constants.x_columns + Constants.y_columns:
         col = sa.column(colstr)
         query = sa.select([sa.func.min(col), sa.func.max(col)]).select_from(
             sa.table("summary")
@@ -220,15 +198,15 @@ def top10table(expr, options):
         .order_by(sa.desc(sa.column(ycol)))
         .limit(10)
     )
-    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
+    engine = sa.create_engine("sqlite:///{}".format(Constants.db_path))
     df = read_sql_query(df_clause, engine)
     df2 = df.sort_values(by=[ycol, xcol], ascending=[False, True]).round(6)
     important = set([ycol, "accuracy", "AUC"])
     col_order = (
         ["name", "run", "epoch"]
-        + OverviewConst.x_columns
+        + Constants.x_columns
         + list(sorted(set(important)))
-        + list(sorted(set(OverviewConst.y_columns) - important))
+        + list(sorted(set(Constants.y_columns) - important))
     )
     dt = (
         dtable.DataTable(
@@ -257,7 +235,7 @@ def top10table(expr, options):
                     "fontWeight": "bold",
                     "backgroundColor": "rgb(102,255,51)",
                 }
-                for x in OverviewConst.y_columns
+                for x in Constants.y_columns
             ]
             + [
                 {
@@ -267,7 +245,7 @@ def top10table(expr, options):
                     "font-style": "italic",
                     "backgroundColor": "rgb(102,255,51)",
                 }
-                for x in OverviewConst.x_columns
+                for x in Constants.x_columns
             ],
         ),
     )
@@ -279,7 +257,7 @@ def figure(expr, options):
     xtitle, xcol = options["xtitle"], options["xcol"]
     ytitle, ycol = options["ytitle"], options["ycol"]
 
-    engine = sa.create_engine("sqlite:///{}".format(OverviewConst.db_path))
+    engine = sa.create_engine("sqlite:///{}".format(Constants.db_path))
     required_cols = ["name", "run", "epoch", gp_opt, xcol, ycol]
     df_clause = (
         sa.select([sa.column(x) for x in required_cols])
@@ -315,6 +293,21 @@ def figure(expr, options):
     return ans
 
 
+@app.callback(
+    [
+        dd.Output(component_id="perf-graph", component_property="figure"),
+        dd.Output(component_id="top10-div", component_property="children"),
+    ],
+    [
+        dd.Input(component_id="snapshot-options", component_property="value"),
+        dd.Input(component_id="grouping-options", component_property="value"),
+        dd.Input(component_id="perfx-dropdown", component_property="value"),
+        dd.Input(component_id="perfx-range", component_property="value"),
+        dd.Input(component_id="perfy-dropdown", component_property="value"),
+        dd.Input(component_id="perfy-range", component_property="value"),
+    ],
+    [dd.State("ranges-div", "children")],
+)
 def subsetting(snapshot_opt, group_opt, xval, x_range, yval, y_range, ranges_str):
     if isinstance(snapshot_opt, str):
         snapshot_opt = [snapshot_opt]
@@ -362,6 +355,10 @@ def subsetting(snapshot_opt, group_opt, xval, x_range, yval, y_range, ranges_str
     return fig, table
 
 
+@app.callback(
+    dd.Output(component_id="url", component_property="pathname"),
+    [dd.Input(component_id="perf-graph", component_property="clickData")],
+)
 def data_select(clickData):
     if clickData is None:
         return dash.no_update
@@ -374,27 +371,3 @@ def data_select(clickData):
         .split(",")
     )
     return "/{}/{}/{}".format(pt["text"], run, ep)
-
-
-def set_callbacks(db_path, app):
-    dh = OverviewConst(db_path)
-    inputs = [
-        dd.Input(component_id="snapshot-options", component_property="value"),
-        dd.Input(component_id="grouping-options", component_property="value"),
-        dd.Input(component_id="perfx-dropdown", component_property="value"),
-        dd.Input(component_id="perfx-range", component_property="value"),
-        dd.Input(component_id="perfy-dropdown", component_property="value"),
-        dd.Input(component_id="perfy-range", component_property="value"),
-    ]
-    app.callback(
-        [
-            dd.Output(component_id="perf-graph", component_property="figure"),
-            dd.Output(component_id="top10-div", component_property="children"),
-        ],
-        inputs,
-        [dd.State("ranges-div", "children")],
-    )(subsetting)
-    app.callback(
-        dd.Output(component_id="url", component_property="pathname"),
-        [dd.Input(component_id="perf-graph", component_property="clickData")],
-    )(data_select)

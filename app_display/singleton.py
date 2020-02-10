@@ -13,14 +13,7 @@ from .utils import get_scoring_dict, random_colors, dict_from_file
 from .overview import halved_div
 from mnistk import Tester, NDArrayEncoder, NDArrayDecoder
 from mnistk.collect import get_records
-
-
-class SingletonConst(object):
-    result_dir = None
-
-    def __init__(self, result_dir, app):
-        SingletonConst.result_dir = result_dir
-
+from app import app, Constants
 
 ####################
 # Layout functions #
@@ -30,7 +23,7 @@ class SingletonConst(object):
 def load_network_data(pathname0):
     pathname = pathname0.split("/")
     mod_name = pathname[1]
-    mod_dir = join(SingletonConst.result_dir, pathname[1])
+    mod_dir = join(Constants.result_dir, pathname[1])
     run = pathname[2]
     epoch = int(pathname[3])
     run_dir = join(mod_dir, "runs", run)
@@ -45,7 +38,7 @@ def load_network_data(pathname0):
         data_dict["splits-dict"],
         data_dict["samples-dict"],
     ) = get_scoring_dict(
-        join(SingletonConst.result_dir, "exam_stats.h5"),
+        join(Constants.result_dir, "exam_stats.h5"),
         join(mod_dir, "runs", run, "predictions.h5"),
     )
     data_dict["dyn-records"] = {}
@@ -237,6 +230,11 @@ def set_layout(pathname0):
 ######################
 
 
+@app.callback(
+    [dd.Output("loss-graph", "figure"), dd.Output("current-epoch", "children")],
+    [dd.Input("loss-graph", "hoverData"), dd.Input("loss-graph", "clickData")],
+    [dd.State("dyn-props", "children"), dd.State("current-epoch", "children")],
+)
 def loss_function(lossHover, lossClick, dyn_props, current_epoch):
     pt_hover = lossHover["points"][0]
     pt_click = lossClick["points"][0]
@@ -289,6 +287,11 @@ def loss_function(lossHover, lossClick, dyn_props, current_epoch):
     return ans, epoch
 
 
+@app.callback(
+    [dd.Output("accu-bars", "figure"), dd.Output("auc-bars", "figure")],
+    [dd.Input("loss-graph", "hoverData"), dd.Input("current-epoch", "children"),],
+    [dd.State("dyn-props", "children")],
+)
 def bar_graphs(lossHover, current_epoch, dyn_props):
     pt_hover = lossHover["points"][0]
     if pt_hover["curveNumber"] != 1:
@@ -361,6 +364,16 @@ def bar_graphs(lossHover, current_epoch, dyn_props):
     return [get_bars("test accuracy", "Accuracy"), get_bars("test AUC", "AUC")]
 
 
+@app.callback(
+    dd.Output("ranking-info", "children"),
+    [dd.Input("current-epoch", "children")],
+    [
+        dd.State("stat-props", "children"),
+        dd.State("stat-rank", "children"),
+        dd.State("dyn-records", "children"),
+        dd.State("dyn-rank", "children"),
+    ],
+)
 def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
     epoch = current_epoch
     stat_props = json.loads(stat_props, cls=NDArrayDecoder)
@@ -440,6 +453,17 @@ def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
     return layout
 
 
+@app.callback(
+    [
+        dd.Output("accuracy-heatmap", "figure"),
+        dd.Output("accuracy-heatmap", "hoverData"),
+    ],
+    [dd.Input("current-epoch", "children")],
+    [
+        dd.State("confusion-dict", "children"),
+        dd.State("accuracy-heatmap", "hoverData"),
+    ],
+)
 def accuracy_heatmap(current_epoch, confusion_dict, accuHover):
     def get_annotation(x, y, text):
         return dict(
@@ -517,6 +541,15 @@ def accuracy_heatmap(current_epoch, confusion_dict, accuHover):
     return ans, accuHover
 
 
+@app.callback(
+    dd.Output("split-chart", "figure"),
+    [dd.Input("accuracy-heatmap", "hoverData")],
+    [
+        dd.State("current-epoch", "children"),
+        dd.State("splits-dict", "children"),
+        dd.State("graph-colors", "children"),
+    ],
+)
 def pie_splits(accuHover, current_epoch, splits_dict, colors):
     epoch = int(current_epoch)
     pt = accuHover["points"][0]
@@ -563,6 +596,10 @@ def pie_splits(accuHover, current_epoch, splits_dict, colors):
     }
 
 
+@app.callback(
+    [dd.Output("testing-truth", "value"), dd.Output("testing-preds", "value")],
+    [dd.Input("accuracy-heatmap", "hoverData")],
+)
 def testing_dropdowns(accuHover):
     pt = accuHover["points"][0]
     if pt["z"] == 0:
@@ -570,11 +607,28 @@ def testing_dropdowns(accuHover):
     return str(pt["y"]), str(pt["x"])
 
 
+@app.callback(
+    [
+        dd.Output("network-error", "children"),
+        dd.Output("gdd-images", "children"),
+        dd.Output("gdd-scores", "children"),
+        dd.Output("network-area", "style"),
+    ],
+    [dd.Input("grads-button", "n_clicks")],
+    [
+        dd.State("testing-truth", "value"),
+        dd.State("testing-preds", "value"),
+        dd.State("samples-dict", "children"),
+        dd.State("current-mod", "children"),
+        dd.State("current-run", "children"),
+        dd.State("current-epoch", "children"),
+    ],
+)
 def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
     t, p = int(truth), int(pred)
     samples_dict = json.loads(samples_dict, cls=NDArrayDecoder)
-    mod_name = json.loads(mod_name, cls=NDArrayDecoder)
-    run = json.loads(run, cls=NDArrayDecoder)
+    mod_name = Constants.fixer(json.loads(mod_name, cls=NDArrayDecoder))
+    run = Constants.fixer(json.loads(run, cls=NDArrayDecoder))
     k = str(10 * t + p)
     samples = samples_dict[epoch].get(k, None)
     if samples is None:
@@ -585,7 +639,7 @@ def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
             dash.no_update,
             dict(display="none"),
         )
-    run_dir = join(SingletonConst.result_dir, mod_name, "runs", run)
+    run_dir = join(Constants.result_dir, mod_name, "runs", run)
     sample = random_choice(samples, size=1)[0]
     imgs, scores = Tester.get_sample_grads(mod_name, run_dir, epoch, sample)
     err_string = (
@@ -599,11 +653,23 @@ def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
     )
 
 
+@app.callback(
+    dd.Output("current-pred", "children"), [dd.Input("grad-scores", "hoverData")]
+)
 def current_prediction(scoreHover):
     pt = scoreHover["points"][0]
     return str(pt["y"])
 
 
+@app.callback(
+    dd.Output("grad-images", "figure"),
+    [
+        dd.Input("current-pred", "children"),
+        dd.Input("network-area", "style"),
+        dd.Input("grads-colorbar", "value"),
+    ],
+    [dd.State("gdd-images", "children"), dd.State("gdd-scores", "children")],
+)
 def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_scores):
     if parent_style.get("display", None) == "none":
         return {}
@@ -612,18 +678,16 @@ def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_sco
     inp, grad = gdd_images["input"].round(6), gdd_images["grads"][int(current_pred)]
     truth = gdd_scores["truth"]
     grad_colors = [
-        [0, "rgba(5, 48, 97, 100)"],
-        [0.42, "rgba(107, 172, 208, 40)"],
+        [0, "rgba(5, 48, 97, 80)"],
+        [0.44, "rgba(107, 172, 208, 30)"],
         [0.5, "rgba(248, 248, 248, 0)"],
-        [0.58, "rgba(229, 130, 103, 40)"],
-        [1, "rgba(103, 0, 31, 100)"],
+        [0.56, "rgba(229, 130, 103, 30)"],
+        [1, "rgba(103, 0, 31, 80)"],
     ]
     if color_range == "global":
-        zmin = gdd_images["grads"].min()
         zmax = gdd_images["grads"].max()
         zmid = 0
     else:
-        zmin = grad.min()
         zmax = grad.max()
         zmid = 0 if 0 < zmax else (zmin + zmax) / 2
         if color_range == "none":
@@ -650,7 +714,7 @@ def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_sco
                 xgap=1,
                 ygap=1,
                 zmid=0,
-                zmin=zmin,
+                zmin=-zmax,
                 zmax=zmax,
                 showscale=(color_range != "none"),
                 hoverongaps=False,
@@ -675,6 +739,11 @@ def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_sco
     }
 
 
+@app.callback(
+    dd.Output("grad-scores", "figure"),
+    [dd.Input("current-pred", "children"), dd.Input("network-area", "style")],
+    [dd.State("gdd-scores", "children")],
+)
 def gradient_scores(current_pred, parent_style, gdd_scores):
     if parent_style.get("display", None) == "none":
         return {}
@@ -723,93 +792,8 @@ def gradient_scores(current_pred, parent_style, gdd_scores):
     }
 
 
-def set_callbacks(result_dir, app):
-    sh = SingletonConst(result_dir, app)
-    app.callback(
-        [dd.Output("loss-graph", "figure"), dd.Output("current-epoch", "children")],
-        [dd.Input("loss-graph", "hoverData"), dd.Input("loss-graph", "clickData")],
-        [dd.State("dyn-props", "children"), dd.State("current-epoch", "children")],
-    )(loss_function)
-    app.callback(
-        [dd.Output("accu-bars", "figure"), dd.Output("auc-bars", "figure")],
-        [dd.Input("loss-graph", "hoverData"), dd.Input("current-epoch", "children"),],
-        [dd.State("dyn-props", "children")],
-    )(bar_graphs)
-
-    app.callback(
-        dd.Output("ranking-info", "children"),
-        [dd.Input("current-epoch", "children")],
-        [
-            dd.State("stat-props", "children"),
-            dd.State("stat-rank", "children"),
-            dd.State("dyn-records", "children"),
-            dd.State("dyn-rank", "children"),
-        ],
-    )(ranking_info)
-
-    app.callback(
-        [
-            dd.Output("accuracy-heatmap", "figure"),
-            dd.Output("accuracy-heatmap", "hoverData"),
-        ],
-        [dd.Input("current-epoch", "children")],
-        [
-            dd.State("confusion-dict", "children"),
-            dd.State("accuracy-heatmap", "hoverData"),
-        ],
-    )(accuracy_heatmap)
-
-    app.callback(
-        dd.Output("split-chart", "figure"),
-        [dd.Input("accuracy-heatmap", "hoverData")],
-        [
-            dd.State("current-epoch", "children"),
-            dd.State("splits-dict", "children"),
-            dd.State("graph-colors", "children"),
-        ],
-    )(pie_splits)
-
-    app.callback(
-        [dd.Output("testing-truth", "value"), dd.Output("testing-preds", "value")],
-        [dd.Input("accuracy-heatmap", "hoverData")],
-    )(testing_dropdowns)
-
-    app.callback(
-        [
-            dd.Output("network-error", "children"),
-            dd.Output("gdd-images", "children"),
-            dd.Output("gdd-scores", "children"),
-            dd.Output("network-area", "style"),
-        ],
-        [dd.Input("grads-button", "n_clicks")],
-        [
-            dd.State("testing-truth", "value"),
-            dd.State("testing-preds", "value"),
-            dd.State("samples-dict", "children"),
-            dd.State("current-mod", "children"),
-            dd.State("current-run", "children"),
-            dd.State("current-epoch", "children"),
-        ],
-    )(get_gradients)
-
-    app.callback(
-        dd.Output("current-pred", "children"), [dd.Input("grad-scores", "hoverData")]
-    )(current_prediction)
-    app.callback(
-        dd.Output("grad-images", "figure"),
-        [
-            dd.Input("current-pred", "children"),
-            dd.Input("network-area", "style"),
-            dd.Input("grads-colorbar", "value"),
-        ],
-        [dd.State("gdd-images", "children"), dd.State("gdd-scores", "children")],
-    )(gradient_images)
-    app.callback(
-        dd.Output("grad-scores", "figure"),
-        [dd.Input("current-pred", "children"), dd.Input("network-area", "style")],
-        [dd.State("gdd-scores", "children")],
-    )(gradient_scores)
-
-    @app.server.route("/<path:im_path>.svg")
-    def net_struct(im_path):
-        return send_from_directory(join(result_dir, dirname(im_path)), "network.svg")
+@app.server.route("/<path:im_path>.svg")
+def net_struct(im_path):
+    return send_from_directory(
+        join(Constants.result_dir, dirname(im_path)), "network.svg"
+    )
