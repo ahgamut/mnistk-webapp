@@ -1,18 +1,24 @@
-import json
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import dash.dependencies as dd
 import dash_table as dtable
 from plotly import graph_objects as go
-from os.path import dirname, join
 from pandas import DataFrame
-from numpy.random import choice as random_choice
 from flask import send_from_directory
-from .utils import get_scoring_dict, random_colors, dict_from_file
+from os.path import dirname, join
+from shutil import rmtree
+from .utils import (
+    get_scoring_dict,
+    random_colors,
+    dict_from_file,
+    dict_from_string,
+    dict_to_string,
+    get_grad_data,
+    get_property_records,
+    check_existence,
+)
 from .overview import halved_div
-from mnistk import Tester, NDArrayEncoder, NDArrayDecoder
-from mnistk.collect import get_records
 from app import app, Constants
 
 ####################
@@ -20,7 +26,7 @@ from app import app, Constants
 ####################
 
 
-def load_network_data(pathname0):
+def load_network_info(pathname0):
     pathname = pathname0.split("/")
     mod_name = pathname[1]
     mod_dir = join(Constants.result_dir, pathname[1])
@@ -28,27 +34,23 @@ def load_network_data(pathname0):
     epoch = int(pathname[3])
     run_dir = join(mod_dir, "runs", run)
 
-    data_dict = {"current-mod": mod_name, "current-run": run, "current-epoch": epoch}
-    data_dict["stat-props"] = dict_from_file(join(mod_dir, "network.json"))
-    data_dict["stat-rank"] = dict_from_file(join(mod_dir, "rankings.json"))
-    data_dict["dyn-props"] = dict_from_file(join(run_dir, "properties.json"))
-    data_dict["dyn-rank"] = dict_from_file(join(run_dir, "rankings.json"))
+    info_dict = {"current-mod": mod_name, "current-run": run, "current-epoch": epoch}
+    info_dict["stat-props"] = dict_from_file(join(mod_dir, "network.json"))
+    info_dict["stat-rank"] = dict_from_file(join(mod_dir, "rankings.json"))
+    info_dict["dyn-props"] = dict_from_file(join(run_dir, "properties.json"))
+    info_dict["dyn-rank"] = dict_from_file(join(run_dir, "rankings.json"))
     (
-        data_dict["confusion-dict"],
-        data_dict["splits-dict"],
-        data_dict["samples-dict"],
+        info_dict["confusion-dict"],
+        info_dict["splits-dict"],
+        info_dict["samples-dict"],
     ) = get_scoring_dict(
         join(Constants.result_dir, "exam_stats.h5"),
         join(mod_dir, "runs", run, "predictions.h5"),
     )
-    data_dict["dyn-records"] = {}
-    dp = {k: v for k, v in data_dict["dyn-props"].items()}
-    dp.update(data_dict["stat-props"])
-    dyn_records = get_records(dp)
-    for i, k in enumerate(sorted(data_dict["dyn-props"]["test loss"].keys())):
-        data_dict["dyn-records"][k] = dyn_records[i]
-
-    return data_dict
+    info_dict["dyn-records"] = get_property_records(
+        info_dict["dyn-props"], info_dict["stat-props"]
+    )
+    return info_dict
 
 
 def layout_loss(epoch):
@@ -189,16 +191,13 @@ def layout_rankings(mod_name):
     ]
 
 
-def layout_hidden(data_dict, epoch):
+def layout_hidden(info_dict, epoch):
     return [
         html.Div(
-            [
-                html.Div(json.dumps(v, cls=NDArrayEncoder), id=k)
-                for k, v in data_dict.items()
-            ]
+            [html.Div(dict_to_string(v), id=k) for k, v in info_dict.items()]
             + [
                 html.Div(
-                    json.dumps(
+                    dict_to_string(
                         {"pie-splits": random_colors(s=0.85, v=0.4, num_colors=10)}
                     ),
                     id="graph-colors",
@@ -211,14 +210,14 @@ def layout_hidden(data_dict, epoch):
 
 
 def set_layout(pathname0):
-    data_dict = load_network_data(pathname0)
-    epoch = data_dict["current-epoch"]
+    info_dict = load_network_info(pathname0)
+    epoch = info_dict["current-epoch"]
     layout = html.Div(
         children=layout_loss(epoch)
-        + layout_detail(data_dict["confusion-dict"][epoch]["correct"][0][0])
+        + layout_detail(info_dict["confusion-dict"][epoch]["correct"][0][0])
         + layout_testing()
-        + layout_rankings(data_dict["current-mod"])
-        + layout_hidden(data_dict, epoch)
+        + layout_rankings(info_dict["current-mod"])
+        + layout_hidden(info_dict, epoch)
         + [dcc.Link("Go Back to Overview", href="/"),],
         id="single-content",
     )
@@ -240,7 +239,7 @@ def loss_function(lossHover, lossClick, dyn_props, current_epoch):
     pt_click = lossClick["points"][0]
     if pt_hover["curveNumber"] != 1 or pt_click["curveNumber"] != 1:
         return dash.no_update, dash.no_update
-    dyn_props = json.loads(dyn_props, cls=NDArrayDecoder)
+    dyn_props = dict_from_string(dyn_props)
     testdata = sorted(
         ((int(x[0]), float(x[1])) for x in dyn_props["test loss"].items()),
         key=lambda x: int(x[0]),
@@ -296,7 +295,7 @@ def bar_graphs(lossHover, current_epoch, dyn_props):
     pt_hover = lossHover["points"][0]
     if pt_hover["curveNumber"] != 1:
         return dash.no_update, dash.no_update
-    dyn_props = json.loads(dyn_props, cls=NDArrayDecoder)
+    dyn_props = dict_from_string(dyn_props)
     epochs = list(dyn_props["test loss"].keys())
     highlight_epoch = str(pt_hover["x"])
 
@@ -376,10 +375,10 @@ def bar_graphs(lossHover, current_epoch, dyn_props):
 )
 def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
     epoch = current_epoch
-    stat_props = json.loads(stat_props, cls=NDArrayDecoder)
-    stat_rank = json.loads(stat_rank, cls=NDArrayDecoder)
-    dyn_record = json.loads(dyn_records, cls=NDArrayDecoder)[epoch]
-    dyn_rank = json.loads(dyn_rank, cls=NDArrayDecoder)[epoch]
+    stat_props = dict_from_string(stat_props)
+    stat_rank = dict_from_string(stat_rank)
+    dyn_record = dict_from_string(dyn_records)[epoch]
+    dyn_rank = dict_from_string(dyn_rank)[epoch]
 
     def rankdf(df_dict, score_dict):
         df = DataFrame(columns=df_dict["columns"], data=df_dict["data"])
@@ -476,7 +475,7 @@ def accuracy_heatmap(current_epoch, confusion_dict, accuHover):
             yref="y",
         )
 
-    cf_data = json.loads(confusion_dict, cls=NDArrayDecoder)[current_epoch]
+    cf_data = dict_from_string(confusion_dict)[current_epoch]
     anno_text = [get_annotation(i, i, cf_data["text"][i][i]) for i in range(10)] + [
         get_annotation(i, j, cf_data["text"][j][i])
         for i in range(10)
@@ -555,9 +554,9 @@ def pie_splits(accuHover, current_epoch, splits_dict, colors):
     pt = accuHover["points"][0]
     if pt["z"] == 0:
         return dash.no_update
-    sp_data = json.loads(splits_dict, cls=NDArrayDecoder)[str(epoch)][pt["y"], pt["x"]]
+    sp_data = dict_from_string(splits_dict)[str(epoch)][pt["y"], pt["x"]]
     to9 = list(range(10))
-    colors = json.loads(colors)["pie-splits"]
+    colors = dict_from_string(colors)["pie-splits"]
     return {
         "data": [
             go.Pie(
@@ -626,9 +625,9 @@ def testing_dropdowns(accuHover):
 )
 def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
     t, p = int(truth), int(pred)
-    samples_dict = json.loads(samples_dict, cls=NDArrayDecoder)
-    mod_name = Constants.fixer(json.loads(mod_name, cls=NDArrayDecoder))
-    run = Constants.fixer(json.loads(run, cls=NDArrayDecoder))
+    samples_dict = dict_from_string(samples_dict)
+    mod_name = Constants.fixer(dict_from_string(mod_name))
+    run = Constants.fixer(dict_from_string(run))
     k = str(10 * t + p)
     samples = samples_dict[epoch].get(k, None)
     if samples is None:
@@ -636,19 +635,17 @@ def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
             "No such samples exist",
             dash.no_update,
             dash.no_update,
-            dash.no_update,
             dict(display="none"),
         )
     run_dir = join(Constants.result_dir, mod_name, "runs", run)
-    sample = random_choice(samples, size=1)[0]
-    imgs, scores = Tester.get_sample_grads(mod_name, run_dir, epoch, sample)
     err_string = (
         "Should get grads for when truth is {} and pred is {}".format(truth, pred),
     )
+    imgs, scores = get_grad_data(mod_name, run_dir, epoch, samples)
     return (
         "",
-        json.dumps(imgs, cls=NDArrayEncoder),
-        json.dumps(scores, cls=NDArrayEncoder),
+        dict_to_string(imgs),
+        dict_to_string(scores),
         dict(),
     )
 
@@ -673,8 +670,8 @@ def current_prediction(scoreHover):
 def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_scores):
     if parent_style.get("display", None) == "none":
         return {}
-    gdd_images = json.loads(gdd_images, cls=NDArrayDecoder)
-    gdd_scores = json.loads(gdd_scores, cls=NDArrayDecoder)
+    gdd_images = dict_from_string(gdd_images)
+    gdd_scores = dict_from_string(gdd_scores)
     inp, grad = gdd_images["input"].round(6), gdd_images["grads"][int(current_pred)]
     truth = gdd_scores["truth"]
     grad_colors = [
@@ -747,7 +744,7 @@ def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_sco
 def gradient_scores(current_pred, parent_style, gdd_scores):
     if parent_style.get("display", None) == "none":
         return {}
-    gdd_scores = json.loads(gdd_scores, cls=NDArrayDecoder)
+    gdd_scores = dict_from_string(gdd_scores)
 
     def get_annotation(x, y, text):
         return dict(
@@ -794,6 +791,23 @@ def gradient_scores(current_pred, parent_style, gdd_scores):
 
 @app.server.route("/<path:im_path>.svg")
 def net_struct(im_path):
+    # download the file locally and then show it to user
+    struct_path = join(Constants.result_dir, dirname(im_path), "network.svg")
+    assert check_existence(struct_path), "Unable to access network svg"
     return send_from_directory(
         join(Constants.result_dir, dirname(im_path)), "network.svg"
     )
+
+
+@app.callback(
+    dd.Output("current-mod", "children"),
+    [dd.Input("url", "pathname")],
+    [dd.State("current-mod", "children")],
+)
+def cleanup_folder(pathname, mod_name):
+    if pathname == "/":
+        if mod_name != "" and not Constants.using_local_data:
+            mod_name = dict_from_string(mod_name)
+            rmtree(join(Constants.result_dir, mod_name))
+        return ""
+    return mod_name

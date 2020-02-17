@@ -8,7 +8,6 @@
     :copyright: (c) 2020 by Gautham Venkatasubramanian.
     :license: see LICENSE for more details.
 """
-import json
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -17,7 +16,7 @@ import dash_table as dtable
 from plotly import graph_objects as go
 import sqlalchemy as sa
 from pandas import read_sql_query
-from .utils import lv
+from .utils import lv, check_existence, dict_from_string, dict_to_string
 from app import app, Constants
 
 
@@ -147,7 +146,7 @@ def yvalue_options():
         min=0,
         max=100,
         step=1,
-        marks={0: "Min", 100: "Max"},
+        marks={0: "0", 100: "1"},
         value=[0, 100],
     )
     div0 = halved_div(dropdown, "Y-Axis Measures:", 30)
@@ -166,7 +165,9 @@ def set_layout():
             html.Div(html.P("Some talk here about what this page is")),
             html.H2("View the performance of a thousand neural networks"),
             html.Div(
-                json.dumps(get_ranges()), id="ranges-div", style=dict(display="none"),
+                dict_to_string(get_ranges()),
+                id="ranges-div",
+                style=dict(display="none"),
             ),
             dcc.Graph(
                 id="perf-graph",
@@ -329,7 +330,7 @@ def subsetting(snapshot_opt, group_opt, xval, x_range, yval, y_range, ranges_str
     ytitle, ycol = yval.split("|")
     gp_title, gp_opt = group_opt.split("|")
 
-    range_dict = json.loads(ranges_str)
+    range_dict = dict_from_string(ranges_str)
     xmin, xmax = range_dict[xcol]
     xleft = xmin + (xmax - xmin) * (0.01) * (x_range[0])
     xright = xmin + (xmax - xmin) * (0.01) * (x_range[1])
@@ -371,3 +372,6 @@ def data_select(clickData):
         .split(",")
     )
     return "/{}/{}/{}".format(pt["text"], run, ep)
+
+
+assert check_existence(Constants.db_path), "No data to show"

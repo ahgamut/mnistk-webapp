@@ -15,8 +15,7 @@ app.layout = html.Div(
 
 
 @app.callback(
-    dd.Output(component_id="page-content", component_property="children"),
-    [dd.Input(component_id="url", component_property="pathname")],
+    dd.Output("page-content", "children"), [dd.Input("url", "pathname")],
 )
 def display_page(pathname):
     if pathname == "/":

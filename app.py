@@ -3,8 +3,9 @@ from re import sub
 
 
 class Constants(object):
-    result_dir = "./results/"
-    db_path = "./results/summary.db"
+    using_local_data = True
+    result_dir = "results/"
+    db_path = "results/summary.db"
     ignore_columns = [
         "activation",
         "groupname",

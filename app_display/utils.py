@@ -1,12 +1,35 @@
 import h5py
 import numpy as np
-from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve, auc
-from mnistk import NDArrayEncoder, NDArrayDecoder
 import json
 import pandas as pd
 import dash_html_components as html
+import os
+import boto3
+import torch
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve, auc
+from mnistk import Tester, NDArrayEncoder, NDArrayDecoder
+from mnistk.collect import get_records
+
+# Callback handling Utilities #
 
 
+def maybe_get_from_s3(file_loader):
+    def confirm_local(*args):
+        client = boto3.client("s3")
+        for path in args:
+            if os.path.exists(path):
+                continue
+            else:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                client.download_file(os.environ.get("S3_BUCKET_NAME"), path, path)
+
+        result = file_loader(*args)
+        return result
+
+    return confirm_local
+
+
+@maybe_get_from_s3
 def get_scoring_dict(true_path, pred_path):
     confusion = {}
     splits = {}
@@ -16,18 +39,46 @@ def get_scoring_dict(true_path, pred_path):
     )
     with h5py.File(true_path, "r") as f_true:
         df["truth"] = f_true.get("truth")
-        with h5py.File(pred_path, "r") as f_pred:
-            for epoch in f_pred.keys():
-                df["preds"] = f_pred.get("{}/preds".format(epoch))
-                scores = np.array(f_pred.get("{}/scores".format(epoch)))
-                cf = confusion_matrix(df["truth"], df["preds"])
-                confusion[int(epoch)] = get_confusion_data(cf)
-                splits[int(epoch)] = get_split_data(df["truth"], df["preds"], scores)
-                samples[int(epoch)] = get_samples(df)
+    with h5py.File(pred_path, "r") as f_pred:
+        for epoch in f_pred.keys():
+            df["preds"] = f_pred.get("{}/preds".format(epoch))
+            scores = np.array(f_pred.get("{}/scores".format(epoch)))
+            cf = confusion_matrix(df["truth"], df["preds"])
+            confusion[int(epoch)] = get_confusion_data(cf)
+            splits[int(epoch)] = get_split_data(df["truth"], df["preds"], scores)
+            samples[int(epoch)] = pick_samples(df)
     return confusion, splits, samples
 
 
-def get_samples(df, size=3):
+@maybe_get_from_s3
+def dict_from_file(path):
+    ans = None
+    with open(path, "r") as f:
+        ans = json.load(f, cls=NDArrayDecoder)
+    return ans
+
+
+@maybe_get_from_s3
+def weights_from_file(path):
+    return torch.load(path, map_location=torch.device("cpu"),)
+
+
+@maybe_get_from_s3
+def check_existence(path):
+    if os.path.exists(path):
+        return True
+    else:
+        return False
+
+
+def get_grad_data(mod_name, run_dir, epoch, samples):
+    weights = weights_from_file(os.path.join(run_dir, "network-{}.pth".format(epoch)))
+    sample = np.random.choice(samples, size=1)[0]
+    imgs, scores = Tester.get_sample_grads(mod_name, weights, sample)
+    return imgs, scores
+
+
+def pick_samples(df, size=3):
     ans = {}
     for (t, p), g in df.groupby(["truth", "preds"]):
         k = int(t) * 10 + int(p)
@@ -69,16 +120,30 @@ def get_confusion_data(cf):
     return ans
 
 
+def dict_to_string(dval):
+    return json.dumps(dval, cls=NDArrayEncoder)
+
+
+def dict_from_string(sval):
+    return json.loads(sval, cls=NDArrayDecoder)
+
+
+def get_property_records(dyn_props, stat_props):
+    props = {k: v for k, v in dyn_props.items()}
+    props.update(stat_props)
+    records_list = get_records(props)
+    records_dict = {}
+    for i, k in enumerate(sorted(dyn_props["test loss"].keys())):
+        records_dict[k] = records_list[i]
+    return records_dict
+
+
+# Layout Utilities #
+
+
 def lv(label, value, vlabel=None):
     vlab = label if vlabel is None else vlabel
     return {"label": label, "value": "{}|{}".format(vlab, value)}
-
-
-def dict_from_file(path):
-    ans = None
-    with open(path, "r") as f:
-        ans = json.load(f, cls=NDArrayDecoder)
-    return ans
 
 
 def random_colors(s, v, num_colors=10, h_start=None):
