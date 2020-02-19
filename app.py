@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 import dash
-from re import sub
+import re
 
 
 class Constants(object):
@@ -15,14 +16,26 @@ class Constants(object):
         "rank_gp",
         "rank_form",
         "rank_snap",
+        "#layers",
     ]
-    x_columns = ["time", "#params", "memory per pass", "#layers", "#ops"]
+    x_columns = ["time", "#params", "memory per pass", "#ops"]
     y_columns = (
         ["accuracy", "AUC"]
         + ["accuracy_{}".format(i) for i in range(10)]
         + ["AUC_{}".format(i) for i in range(10)]
     )
-    fixer = lambda x: sub("[^A-Za-z0-9 _]+", "", x)
+    pretty_names = {
+        "time": "Time",
+        "#layers": "Layers",
+        "#params": "Parameters",
+        "memory per pass": "Memory Usage",
+        "#ops": "Operations",
+        "name": "Name",
+        "run": "Run",
+        "epoch": "Epoch",
+        "accuracy": "Accuracy",
+    }
+    regex_fix = re.compile("[^\w ]+")
 
 
 external_css = ["https://cdnjs.cloudflare.com/ajax/libs/tufte-css/1.7.2/tufte.css"]

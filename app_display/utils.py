@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import h5py
 import numpy as np
 import json
@@ -133,7 +134,7 @@ def get_property_records(dyn_props, stat_props):
     props.update(stat_props)
     records_list = get_records(props)
     records_dict = {}
-    for i, k in enumerate(sorted(dyn_props["test loss"].keys())):
+    for i, k in enumerate(sorted(int(x) for x in dyn_props["test loss"].keys())):
         records_dict[k] = records_list[i]
     return records_dict
 

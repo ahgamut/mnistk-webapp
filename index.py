@@ -12,6 +12,7 @@ app.layout = html.Div(
         html.Div(id="page-content"),
     ]
 )
+app.title = "mnistk - 1001 generated networks on MNIST"
 
 
 @app.callback(

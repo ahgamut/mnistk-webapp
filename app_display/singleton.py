@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -10,15 +11,23 @@ from os.path import dirname, join
 from shutil import rmtree
 from .utils import (
     get_scoring_dict,
-    random_colors,
-    dict_from_file,
-    dict_from_string,
-    dict_to_string,
     get_grad_data,
     get_property_records,
     check_existence,
+    dict_from_file,
+    dict_from_string,
+    dict_to_string,
+    random_colors,
 )
 from .overview import halved_div
+from .textinfo import (
+    ranking_text_0,
+    prediction_text_0,
+    prediction_text_1,
+    prediction_text_2,
+    heatmap_text_0,
+    loss_text_0,
+)
 from app import app, Constants
 
 ####################
@@ -54,41 +63,40 @@ def load_network_info(pathname0):
 
 
 def layout_loss(epoch):
+    div = halved_div(
+        html.Div(
+            [
+                dcc.Graph(id="accu-bars", config=dict(displayModeBar=False)),
+                dcc.Graph(id="auc-bars", config=dict(displayModeBar=False)),
+            ]
+        ),
+        dcc.Graph(
+            id="loss-graph",
+            hoverData={"points": [dict(curveNumber=1, x=epoch)]},
+            config=dict(displayModeBar=False),
+        ),
+        50,
+    )
     return [
         html.H2("Performance Across Epochs"),
-        halved_div(
-            html.Div(
-                [
-                    dcc.Graph(id="accu-bars", config=dict(displayModeBar=False)),
-                    dcc.Graph(id="auc-bars", config=dict(displayModeBar=False)),
-                ]
-            ),
-            dcc.Graph(
-                id="loss-graph",
-                hoverData={"points": [dict(curveNumber=1, x=epoch)]},
-                clickData={"points": [dict(curveNumber=1, x=epoch)]},
-                config=dict(displayModeBar=False),
-            ),
-        ),
+        dcc.Markdown(loss_text_0, style=dict(width="75%")),
+        div,
     ]
 
 
 def layout_detail(zval):
+    div = halved_div(
+        dcc.Graph(id="split-chart", config=dict(displayModeBar=False)),
+        dcc.Graph(
+            id="accuracy-heatmap",
+            hoverData={"points": [dict(x=0, y=0, z=zval,)]},
+            config=dict(displayModeBar=False),
+        ),
+    )
     return [
         html.H2("Distribution of Predictions"),
-        html.P(
-            """
-            The accuracy stats shown above are created using the network's <i>maximum</i> prediction score for a given sample.
-            """
-        ),
-        halved_div(
-            dcc.Graph(id="split-chart", config=dict(displayModeBar=False)),
-            dcc.Graph(
-                id="accuracy-heatmap",
-                hoverData={"points": [dict(x=0, y=0, z=zval,)]},
-                config=dict(displayModeBar=False),
-            ),
-        ),
+        dcc.Markdown(heatmap_text_0, style=dict(width="75%")),
+        div,
     ]
 
 
@@ -101,22 +109,27 @@ def layout_testing():
         children="Get Gradients",
         style={"font-family": "et-book", "font-size": 20,},
     )
-
     f = lambda x, y: html.Div(
-        x, style=dict(width="{}%".format(y), display="table-cell"),
+        x, style=dict(display="table-cell", width="{}%".format(y))
     )
     opt_div = html.Div(
         [
-            f(html.P("See gradients of a sample where truth is "), 35),
-            f(t, 4),
-            f("", 1),
-            f(html.P("and network prediction is "), 25),
-            f(p, 4),
-            f("", 1),
-            f(button, 30),
+            html.Div(
+                [
+                    f(html.P("Ground Truth"), 25),
+                    f("", 5),
+                    f(t, 5),
+                    f("", 5),
+                    f(html.P("Network Prediction"), 25),
+                    f("", 5),
+                    f(p, 5),
+                    f("", 25),
+                ],
+                style=dict(display="table-row"),
+            ),
+            html.Div(button, style=dict(display="table-row")),
         ],
-        style=dict(display="table", margin=10),
-        className="fullwidth",
+        style=dict(display="table"),
     )
     radio_div = halved_div(
         dcc.RadioItems(
@@ -141,22 +154,22 @@ def layout_testing():
         html.H2("How a prediction occurred"),
         html.Div(
             [
-                html.P(
-                    "Here you can test the network with samples from the test dataset and view the predictions"
-                ),
+                dcc.Markdown(prediction_text_0, style=dict(width="75%")),
                 opt_div,
-                html.Div("", id="network-error", style=dict(color="red")),
                 html.Div(
                     [
+                        dcc.Markdown(prediction_text_1, style=dict(width="75%")),
                         radio_div,
                         figs_div,
                         html.Div("0", id="current-pred", style=dict(display="none")),
                         html.Div(id="gdd-scores", style=dict(display="none")),
                         html.Div(id="gdd-images", style=dict(display="none")),
+                        dcc.Markdown(prediction_text_2, style=dict(width="75%")),
                     ],
                     id="network-area",
                     style=dict(display="none"),
                 ),
+                html.Div("", id="network-error", style=dict(color="red")),
             ],
             id="testing-samples",
         ),
@@ -211,14 +224,48 @@ def layout_hidden(info_dict, epoch):
 
 def set_layout(pathname0):
     info_dict = load_network_info(pathname0)
+    mod_name = info_dict["current-mod"]
+    run = info_dict["current-run"]
     epoch = info_dict["current-epoch"]
+    subtitle = html.P(
+        children="{}, run {}, epoch {}".format(mod_name, run, epoch),
+        className="subtitle",
+    )
+    f = lambda x, y: html.Div(
+        x, style=dict(display="table-cell", width="{}%".format(y))
+    )
+    nav_list = (
+        [f(subtitle, 65),]
+        + [
+            f(
+                dcc.Link(
+                    "Epoch {}".format(x), href="/{}/{}/{}".format(mod_name, run, x)
+                ),
+                5,
+            )
+            for x in info_dict["dyn-props"]["test loss"].keys()
+            if str(x) != str(epoch)
+        ]
+        + [f(dcc.Link("Go Back to Overview", href="/"), 15)]
+    )
+    nav_list2 = [f("", 65)] + nav_list[1:]
+    navigation = html.Div(
+        children=nav_list,
+        style=dict(display="table", align="right", cellspacing="3px"),
+    )
+    navigation2 = html.Div(
+        children=nav_list2,
+        style=dict(display="table", align="left", cellspacing="3px"),
+    )
+
     layout = html.Div(
-        children=layout_loss(epoch)
+        children=[navigation]
+        + layout_loss(epoch)
         + layout_detail(info_dict["confusion-dict"][epoch]["correct"][0][0])
         + layout_testing()
         + layout_rankings(info_dict["current-mod"])
         + layout_hidden(info_dict, epoch)
-        + [dcc.Link("Go Back to Overview", href="/"),],
+        + [navigation2],
         id="single-content",
     )
     return layout
@@ -230,15 +277,14 @@ def set_layout(pathname0):
 
 
 @app.callback(
-    [dd.Output("loss-graph", "figure"), dd.Output("current-epoch", "children")],
-    [dd.Input("loss-graph", "hoverData"), dd.Input("loss-graph", "clickData")],
-    [dd.State("dyn-props", "children"), dd.State("current-epoch", "children")],
+    dd.Output("loss-graph", "figure"),
+    [dd.Input("loss-graph", "hoverData"), dd.Input("current-epoch", "children")],
+    [dd.State("dyn-props", "children")],
 )
-def loss_function(lossHover, lossClick, dyn_props, current_epoch):
-    pt_hover = lossHover["points"][0]
-    pt_click = lossClick["points"][0]
-    if pt_hover["curveNumber"] != 1 or pt_click["curveNumber"] != 1:
-        return dash.no_update, dash.no_update
+def loss_function(lossData, current_epoch, dyn_props):
+    pt_hover = lossData["points"][0]
+    if pt_hover["curveNumber"] != 1:
+        return dash.no_update
     dyn_props = dict_from_string(dyn_props)
     testdata = sorted(
         ((int(x[0]), float(x[1])) for x in dyn_props["test loss"].items()),
@@ -261,7 +307,11 @@ def loss_function(lossHover, lossClick, dyn_props, current_epoch):
                 marker=dict(
                     size=12,
                     line=dict(
-                        width=[1.5 * (t[0] == pt_click["x"]) for t in testdata],
+                        width=[
+                            1.5 * (t[0] == pt_hover["x"])
+                            + 2.5 * (t[0] == int(current_epoch))
+                            for t in testdata
+                        ],
                         color="#000000",
                     ),
                 ),
@@ -275,15 +325,12 @@ def loss_function(lossHover, lossClick, dyn_props, current_epoch):
             yaxis=dict(title="Loss"),
             font={"family": "et-book", "size": 15},
             clickmode="event",
+            width="500",
             height="450",
             margin={"l": 50, "b": 40, "r": 10, "t": 10},
         ),
     }
-
-    epoch = str(pt_click["x"])
-    if epoch == current_epoch:
-        epoch = dash.no_update
-    return ans, epoch
+    return ans
 
 
 @app.callback(
@@ -291,8 +338,8 @@ def loss_function(lossHover, lossClick, dyn_props, current_epoch):
     [dd.Input("loss-graph", "hoverData"), dd.Input("current-epoch", "children"),],
     [dd.State("dyn-props", "children")],
 )
-def bar_graphs(lossHover, current_epoch, dyn_props):
-    pt_hover = lossHover["points"][0]
+def bar_graphs(lossData, current_epoch, dyn_props):
+    pt_hover = lossData["points"][0]
     if pt_hover["curveNumber"] != 1:
         return dash.no_update, dash.no_update
     dyn_props = dict_from_string(dyn_props)
@@ -326,7 +373,7 @@ def bar_graphs(lossHover, current_epoch, dyn_props):
                     y=[float(x) for x in dyn_props[col][epoch]],
                     mode="markers",
                     marker=dict(
-                        size=12 if epoch == current_epoch else 8,
+                        size=12 if epoch == current_epoch else 11,
                         symbol=[
                             graph_symbol(
                                 dyn_props[col][epoch][i],
@@ -347,13 +394,14 @@ def bar_graphs(lossHover, current_epoch, dyn_props):
                 hovermode="closest",
                 font={"family": "et-book", "size": 15},
                 xaxis=dict(
-                    title="{} at Epoch {} (avg. {})".format(
+                    title="{} at Epoch {} (avg. {:.6f})".format(
                         title, current_epoch, average(dyn_props[col][current_epoch])
                     ),
                     dtick=1,
                     zeroline=False,
                 ),
                 yaxis=dict(showline=False, zeroline=False),
+                width="500",
                 height="225",
                 margin={"l": 40, "b": 40, "r": 10, "t": 10},
             ),
@@ -383,25 +431,27 @@ def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
     def rankdf(df_dict, score_dict):
         df = DataFrame(columns=df_dict["columns"], data=df_dict["data"])
         df["metric"] = df_dict["index"]
-        df["value"] = [score_dict.get(x, -1) for x in df["metric"]]
+        df["value"] = [score_dict.get(x, 1) for x in df["metric"]]
         df = df[["metric", "value"] + df_dict["columns"]]
-        out_of = df[df["metric"] == "out of"]
+        out_of = dict(df[df["metric"] == "out of"].iloc[0])
         df = df[df["metric"] != "out of"]
+        df["metric"] = df["metric"].map(lambda x: Constants.pretty_names.get(x, x))
+        df.round(10)
         return df, out_of
 
     stat_df, stat_out = rankdf(stat_rank, stat_props)
     dyn_df, dyn_out = rankdf(dyn_rank, dyn_record)
-
-    header_names = {
+    dyn_df["value"] = dyn_df["value"].round(10)
+    header_names = lambda outval: {
         "Metric": "metric",
         "Value": "value",
-        "Global Rank": "global",
-        "Group Rank": "in_group",
-        "Form Rank": "in_form",
-        "Run Rank": "in_run",
+        "Global (/{})".format(outval["global"]): "global",
+        "Group (/{})".format(outval["in_group"]): "in_group",
+        "Form (/{})".format(outval["in_form"]): "in_form",
+        "Run (/{})".format(outval["in_run"]): "in_run",
     }
-    table_props = dict(
-        columns=[{"name": k, "id": v} for k, v in header_names.items()],
+    table_props = lambda outval: dict(
+        columns=[{"name": k, "id": v} for k, v in header_names(outval).items()],
         style_table={"overflowX": "scroll"},
         style_cell={
             "overflow": "hidden",
@@ -425,12 +475,16 @@ def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
         },
     )
     stat_table = dtable.DataTable(
-        id="stat-table", data=stat_df.to_dict("records"), **table_props
+        id="stat-table", data=stat_df.to_dict("records"), **table_props(stat_out)
     )
     dyn_table = dtable.DataTable(
-        id="dyn-table", data=dyn_df.to_dict("records"), **table_props
+        id="dyn-table", data=dyn_df.to_dict("records"), **table_props(dyn_out)
     )
+    text_infodict = {
+        x: dyn_record[x] for x in ["groupname", "formname", "run", "epoch"]
+    }
     layout = [
+        dcc.Markdown(ranking_text_0.format(**text_infodict)),
         html.Div(
             [
                 html.P("Ranking Structural data for {}".format(stat_props["name"])),
@@ -441,7 +495,7 @@ def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
         html.Div(
             [
                 html.P(
-                    "Ranking Prediction data for {}, run {}, tested on epoch {}:".format(
+                    "Ranking Run-Dependent data for {}, run {}, tested on epoch {}:".format(
                         stat_props["name"], dyn_record["run"], current_epoch
                     )
                 ),
@@ -463,7 +517,7 @@ def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
         dd.State("accuracy-heatmap", "hoverData"),
     ],
 )
-def accuracy_heatmap(current_epoch, confusion_dict, accuHover):
+def accuracy_heatmap(current_epoch, confusion_dict, accuData):
     def get_annotation(x, y, text):
         return dict(
             font=dict(color="#000000"),
@@ -519,25 +573,32 @@ def accuracy_heatmap(current_epoch, confusion_dict, accuHover):
         "layout": dict(
             hovermode="closest",
             font={"family": "et-book", "size": 15},
-            width="450",
-            height="450",
-            yaxis=dict(title="Truth", dtick=1, zeroline=False),
-            xaxis=dict(title="Prediction", dtick=1, zeroline=False),
+            yaxis=dict(
+                title="Truth", dtick=1, zeroline=False, scaleanchor="x", scaleratio=1,
+            ),
+            xaxis=dict(
+                title="Prediction",
+                dtick=1,
+                zeroline=False,
+                range=to9,
+                constrain="domain",
+            ),
             margin={"l": 40, "b": 50, "r": 40, "t": 40},
             annotations=anno_text,
             title=dict(
                 color="#000000",
                 text="Confusion Matrix at Epoch {}".format(current_epoch),
             ),
+            **{"height": 450, "width": 450},
         ),
     }
-    acc_pt = accuHover["points"][0]
+    acc_pt = accuData["points"][0]
     acc_pt["z"] = int(cf_data["text"][acc_pt["y"]][acc_pt["x"]])
     if acc_pt["z"] == 0:
         acc_pt["x"] = 0
         acc_pt["y"] = 0
         acc_pt["z"] = int(cf_data["text"][acc_pt["y"]][acc_pt["x"]])
-    return ans, accuHover
+    return ans, accuData
 
 
 @app.callback(
@@ -549,9 +610,9 @@ def accuracy_heatmap(current_epoch, confusion_dict, accuHover):
         dd.State("graph-colors", "children"),
     ],
 )
-def pie_splits(accuHover, current_epoch, splits_dict, colors):
+def pie_splits(accuData, current_epoch, splits_dict, colors):
     epoch = int(current_epoch)
-    pt = accuHover["points"][0]
+    pt = accuData["points"][0]
     if pt["z"] == 0:
         return dash.no_update
     sp_data = dict_from_string(splits_dict)[str(epoch)][pt["y"], pt["x"]]
@@ -575,8 +636,6 @@ def pie_splits(accuHover, current_epoch, splits_dict, colors):
         "layout": dict(
             hovermode="closest",
             font={"family": "et-book", "size": 15},
-            width="450",
-            height="450",
             margin={"l": 20, "b": 35, "r": 20, "t": 40},
             uniformtext=dict(minsize=8, mode="hide"),
             annotations=[
@@ -591,6 +650,8 @@ def pie_splits(accuHover, current_epoch, splits_dict, colors):
                 )
             ],
             title=dict(text="Distribution of Prediction Scores"),
+            yaxis=dict(scaleanchor="x", scaleratio=1),
+            **{"height": 450, "width": 450},
         ),
     }
 
@@ -599,8 +660,8 @@ def pie_splits(accuHover, current_epoch, splits_dict, colors):
     [dd.Output("testing-truth", "value"), dd.Output("testing-preds", "value")],
     [dd.Input("accuracy-heatmap", "hoverData")],
 )
-def testing_dropdowns(accuHover):
-    pt = accuHover["points"][0]
+def testing_dropdowns(accuData):
+    pt = accuData["points"][0]
     if pt["z"] == 0:
         return dash.no_update, dash.no_update
     return str(pt["y"]), str(pt["x"])
@@ -626,8 +687,8 @@ def testing_dropdowns(accuHover):
 def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
     t, p = int(truth), int(pred)
     samples_dict = dict_from_string(samples_dict)
-    mod_name = Constants.fixer(dict_from_string(mod_name))
-    run = Constants.fixer(dict_from_string(run))
+    mod_name = Constants.regex_fix.sub("", dict_from_string(mod_name))
+    run = Constants.regex_fix.sub("", dict_from_string(run))
     k = str(10 * t + p)
     samples = samples_dict[epoch].get(k, None)
     if samples is None:
@@ -653,8 +714,8 @@ def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
 @app.callback(
     dd.Output("current-pred", "children"), [dd.Input("grad-scores", "hoverData")]
 )
-def current_prediction(scoreHover):
-    pt = scoreHover["points"][0]
+def current_prediction(scoreData):
+    pt = scoreData["points"][0]
     return str(pt["y"])
 
 
@@ -672,14 +733,17 @@ def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_sco
         return {}
     gdd_images = dict_from_string(gdd_images)
     gdd_scores = dict_from_string(gdd_scores)
-    inp, grad = gdd_images["input"].round(6), gdd_images["grads"][int(current_pred)]
+    inp, grad = (
+        gdd_images["input"],
+        gdd_images["grads"][int(current_pred)],
+    )
     truth = gdd_scores["truth"]
     grad_colors = [
-        [0, "rgba(5, 48, 97, 80)"],
-        [0.44, "rgba(107, 172, 208, 30)"],
+        [0, "rgba(5, 48, 97, 70)"],
+        [0.44, "rgba(107, 172, 208, 20)"],
         [0.5, "rgba(248, 248, 248, 0)"],
-        [0.56, "rgba(229, 130, 103, 30)"],
-        [1, "rgba(103, 0, 31, 80)"],
+        [0.56, "rgba(229, 130, 103, 20)"],
+        [1, "rgba(103, 0, 31, 70)"],
     ]
     if color_range == "global":
         zmax = gdd_images["grads"].max()
