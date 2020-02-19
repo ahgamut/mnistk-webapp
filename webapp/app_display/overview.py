@@ -65,7 +65,9 @@ def groupby_options():
         lv("Epoch", "epoch"),
     ]
     default = gb_opts[0]["value"]
-    dropdown = dcc.Dropdown(id="groupby-options", options=gb_opts, value=default)
+    dropdown = dcc.Dropdown(
+        id="groupby-options", options=gb_opts, value=default, clearable=False
+    )
     return halved_div(dropdown, "Group Networks By:", 30, className="fullwidth")
 
 
