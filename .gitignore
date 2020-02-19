@@ -1,6 +1,8 @@
 .*.s[a-z][a-z]
 .tmuxp.yaml
 notes.md
+webapp/data
+webapp/results
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
