@@ -72,7 +72,7 @@ def layout_loss(epoch):
         ),
         dcc.Graph(
             id="loss-graph",
-            hoverData={"points": [dict(curveNumber=1, x=epoch)]},
+            clickData={"points": [dict(curveNumber=1, x=epoch)]},
             config=dict(displayModeBar=False),
         ),
         50,
@@ -89,7 +89,7 @@ def layout_detail(zval):
         dcc.Graph(id="split-chart", config=dict(displayModeBar=False)),
         dcc.Graph(
             id="accuracy-heatmap",
-            hoverData={"points": [dict(x=0, y=0, z=zval,)]},
+            clickData={"points": [dict(x=0, y=0, z=zval,)]},
             config=dict(displayModeBar=False),
         ),
     )
@@ -278,7 +278,7 @@ def set_layout(pathname0):
 
 @app.callback(
     dd.Output("loss-graph", "figure"),
-    [dd.Input("loss-graph", "hoverData"), dd.Input("current-epoch", "children")],
+    [dd.Input("loss-graph", "clickData"), dd.Input("current-epoch", "children")],
     [dd.State("dyn-props", "children")],
 )
 def loss_function(lossData, current_epoch, dyn_props):
@@ -321,6 +321,7 @@ def loss_function(lossData, current_epoch, dyn_props):
         ],
         "layout": dict(
             hovermode="closest",
+            legend=dict(bgcolor="#fffff8"),
             xaxis=dict(title="Epoch"),
             yaxis=dict(title="Loss"),
             font={"family": "et-book", "size": 15},
@@ -335,7 +336,7 @@ def loss_function(lossData, current_epoch, dyn_props):
 
 @app.callback(
     [dd.Output("accu-bars", "figure"), dd.Output("auc-bars", "figure")],
-    [dd.Input("loss-graph", "hoverData"), dd.Input("current-epoch", "children"),],
+    [dd.Input("loss-graph", "clickData"), dd.Input("current-epoch", "children"),],
     [dd.State("dyn-props", "children")],
 )
 def bar_graphs(lossData, current_epoch, dyn_props):
@@ -392,6 +393,7 @@ def bar_graphs(lossData, current_epoch, dyn_props):
             ],
             "layout": dict(
                 hovermode="closest",
+                legend=dict(bgcolor="#fffff8"),
                 font={"family": "et-book", "size": 15},
                 xaxis=dict(
                     title="{} at Epoch {} (avg. {:.6f})".format(
@@ -509,12 +511,12 @@ def ranking_info(current_epoch, stat_props, stat_rank, dyn_records, dyn_rank):
 @app.callback(
     [
         dd.Output("accuracy-heatmap", "figure"),
-        dd.Output("accuracy-heatmap", "hoverData"),
+        dd.Output("accuracy-heatmap", "clickData"),
     ],
     [dd.Input("current-epoch", "children")],
     [
         dd.State("confusion-dict", "children"),
-        dd.State("accuracy-heatmap", "hoverData"),
+        dd.State("accuracy-heatmap", "clickData"),
     ],
 )
 def accuracy_heatmap(current_epoch, confusion_dict, accuData):
@@ -573,6 +575,7 @@ def accuracy_heatmap(current_epoch, confusion_dict, accuData):
         "layout": dict(
             hovermode="closest",
             font={"family": "et-book", "size": 15},
+            legend=dict(bgcolor="#fffff8"),
             yaxis=dict(
                 title="Truth", dtick=1, zeroline=False, scaleanchor="x", scaleratio=1,
             ),
@@ -603,7 +606,7 @@ def accuracy_heatmap(current_epoch, confusion_dict, accuData):
 
 @app.callback(
     dd.Output("split-chart", "figure"),
-    [dd.Input("accuracy-heatmap", "hoverData")],
+    [dd.Input("accuracy-heatmap", "clickData")],
     [
         dd.State("current-epoch", "children"),
         dd.State("splits-dict", "children"),
@@ -636,6 +639,7 @@ def pie_splits(accuData, current_epoch, splits_dict, colors):
         "layout": dict(
             hovermode="closest",
             font={"family": "et-book", "size": 15},
+            legend=dict(bgcolor="#fffff8"),
             margin={"l": 20, "b": 35, "r": 20, "t": 40},
             uniformtext=dict(minsize=8, mode="hide"),
             annotations=[
@@ -658,7 +662,7 @@ def pie_splits(accuData, current_epoch, splits_dict, colors):
 
 @app.callback(
     [dd.Output("testing-truth", "value"), dd.Output("testing-preds", "value")],
-    [dd.Input("accuracy-heatmap", "hoverData")],
+    [dd.Input("accuracy-heatmap", "clickData")],
 )
 def testing_dropdowns(accuData):
     pt = accuData["points"][0]
@@ -712,7 +716,7 @@ def get_gradients(n_clicks, truth, pred, samples_dict, mod_name, run, epoch):
 
 
 @app.callback(
-    dd.Output("current-pred", "children"), [dd.Input("grad-scores", "hoverData")]
+    dd.Output("current-pred", "children"), [dd.Input("grad-scores", "clickData")]
 )
 def current_prediction(scoreData):
     pt = scoreData["points"][0]
@@ -786,6 +790,7 @@ def gradient_images(current_pred, parent_style, color_range, gdd_images, gdd_sco
         ],
         "layout": dict(
             hovermode="closest",
+            legend=dict(bgcolor="#fffff8"),
             font={"family": "et-book", "size": 15},
             width="600",
             height="600",
@@ -838,6 +843,7 @@ def gradient_scores(current_pred, parent_style, gdd_scores):
         ],
         "layout": dict(
             hovermode="closest",
+            legend=dict(bgcolor="#fffff8"),
             title=dict(text="Scores"),
             font={"family": "et-book", "size": 15},
             annotations=[

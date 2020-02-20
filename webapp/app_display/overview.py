@@ -310,6 +310,7 @@ def figure(expr, options):
             yaxis={"title": ytitle},
             height="700",
             font={"family": "et-book", "size": 15},
+            legend=dict(bgcolor="#fffff8"),
             clickmode="event",
         ),
     }

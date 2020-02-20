@@ -1,0 +1,12 @@
+/* plotly is using inline CSS for the first main-svg to give
+ * a white background, but tufte-css uses #fffff8, the svg
+ * stands out in a bad way. I've used !important to override
+ * that inline rule.
+ */
+.svg-container > .main-svg {
+	background: rgb(255, 255, 248) none repeat scroll 0% 0% !important
+}
+
+.svg-container > .main-svg ~ .main-svg {
+	background: none !important
+}

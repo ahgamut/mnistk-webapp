@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import dash
 import re
+import os
 
 
 class Constants(object):
-    using_local_data = True
+    using_local_data = os.environ.get("S3_BUCKET_NAME", None) is None
     result_dir = "results/"
     db_path = "results/summary.db"
     ignore_columns = [

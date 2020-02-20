@@ -64,7 +64,7 @@ loss_text_0 = """
 The graph on the left shows the loss function's value over the training and
 test sets, and the graphs on the right show the accuracy/AUC for each digit.
 
-Hover over any point showing the loss over the test set to see the comparison
+Click on any point showing the loss over the test set to see the comparison
 of metrics between epochs.
 """
 
@@ -81,7 +81,7 @@ on the left.  The pie chart on the right shows the distribution of the
 prediction scores of the network for a given truth/prediction class.  The
 scores are averaged over all elements in the class.
 
-Hover on any square in the confusion matrix to see how the distribution of
+Click on any square in the confusion matrix to see how the distribution of
 prediction scores varies.
 
 """
@@ -92,7 +92,7 @@ One can look at the gradients produced when a particular prediction is made on
 a given input, to get some idea of how the network responds to a particular
 class of images exemplified by that input.
 
-Select the class of images using the dropdowns, or by hovering on the confusion
+Select the class of images using the dropdowns, or by clicking on the confusion
 matrix. Click on the button to compute gradients.
 """
 
@@ -101,7 +101,7 @@ The images are in grayscale, with higher values in darker shades.
 The gradients are in a red-blue colorscale, with higher values in red shades,
 lower values in blue shades and values close to zero are transparent.
 
-Hover on a prediction on the left to see the gradients appear on the image
+Click on a prediction on the left to see the gradients appear on the image
 in the right.
 """
 

@@ -1,7 +1,7 @@
 import dash_core_components as dcc
 import dash_html_components as html
 import dash.dependencies as dd
-from app import app, Constants
+from app import app, server, Constants
 from app_display.overview import set_layout as overview_layout
 from app_display.singleton import set_layout as single_layout
 
@@ -10,6 +10,14 @@ app.layout = html.Div(
         dcc.Location(id="url", refresh=True),
         html.H1(["mnistk - 1001 generated networks on MNIST"]),
         html.Div(id="page-content"),
+        html.Br(),
+        html.Footer(
+            html.A(
+                "Source code and details on Github",
+                href="https://github.com/ahgamut/mnistk-webapp",
+            ),
+            style={"width": "100%", "text-align": "center"},
+        ),
     ]
 )
 app.title = "mnistk - 1001 generated networks on MNIST"
