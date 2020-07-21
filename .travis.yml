@@ -1,0 +1,19 @@
+dist: bionic
+addons:
+  snaps:
+    - core
+language: python
+services:
+  - docker
+
+install:
+  - wget -qO- https://toolbelt.heroku.com/install.sh | sh
+  - echo "$HEROKU_API_KEY" | docker login --username=_ --password-stdin registry.heroku.com
+  - docker build -t registry.heroku.com/mnistk/web .
+
+script:
+  - docker push registry.heroku.com/mnistk/web
+  - heroku container:release web -a mnistk
+
+after_success:
+  - echo "uploaded to heroku"
