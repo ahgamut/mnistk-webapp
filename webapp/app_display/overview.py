@@ -185,16 +185,26 @@ def set_layout():
                 style=dict(display="none"),
             ),
             dcc.Markdown(ov_text_0, style=dict(width="75%")),
-            dcc.Graph(
-                id="perf-graph",
-                className="fullwidth",
-                config=dict(displayModeBar=False),
+            dcc.Loading(
+                id="ov-loading-1",
+                type="circle",
+                color="#ee1729",
+                children=dcc.Graph(
+                    id="perf-graph",
+                    className="fullwidth",
+                    config=dict(displayModeBar=False),
+                ),
             ),
             html.P([x_select, y_select, gp_select, sub_select, snap_select]),
             dcc.Markdown(intro_text_1, style=dict(width="75%")),
             html.H2("The Top Ten"),
             dcc.Markdown(top10_text_0, style=dict(width="75%")),
-            html.Div(id="top10-div", className="fullwidth"),
+            dcc.Loading(
+                id="ov-loading-2",
+                type="circle",
+                color="#ee1729",
+                children=html.Div(id="top10-div", className="fullwidth"),
+            ),
         ],
         id="overview-content",
     )
